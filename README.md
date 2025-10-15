@@ -121,7 +121,6 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | `ccg setup-hooks audio` | Play sounds for completion, permission & compaction |
 | `ccg setup-hooks audio-tts` | Speak notifications using TTS (macOS, multi-hook) |
 | `ccg setup-hooks png` | Auto-generate PNG after each response |
-| **Awesome-hooks (PreToolUse)** | |
 | `ccg setup-hooks uv-standard` | Enforce uv instead of pip/pip3 |
 | `ccg setup-hooks bundler-standard` | Enforce Bun instead of npm/pnpm/yarn |
 | `ccg setup-hooks file-name-consistency` | Ensure consistent file naming |
