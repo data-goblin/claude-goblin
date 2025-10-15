@@ -149,6 +149,9 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
                         week_reset=limits["week_reset"],
                         opus_reset=limits["opus_reset"],
                     )
+                elif limits and "error" in limits:
+                    console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
+                    console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
     # Step 3: Prepare dashboard from database
     with console.status("[bold #ff8800]Preparing dashboard...", spinner="dots", spinner_style="#ff8800"):

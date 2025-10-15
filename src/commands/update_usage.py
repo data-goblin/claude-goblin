@@ -58,6 +58,9 @@ def run(console: Console) -> None:
                     opus_reset=limits["opus_reset"],
                 )
                 console.print(f"[green]Saved limits snapshot (Session: {limits['session_pct']}%, Week: {limits['week_pct']}%, Opus: {limits['opus_pct']}%)[/green]")
+            elif limits and "error" in limits:
+                console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
+                console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
         # Get database stats to determine date range
         db_stats = get_database_stats()

@@ -5,6 +5,7 @@ import os
 import pty
 import select
 import time
+import shutil
 from rich.console import Console
 #endregion
 
@@ -34,6 +35,13 @@ def capture_limits() -> dict | None:
         Dictionary with keys: session_pct, week_pct, opus_pct,
         session_reset, week_reset, opus_reset, or None if capture failed
     """
+    # Check if claude CLI is available
+    if not shutil.which('claude'):
+        return {
+            "error": "claude_not_found",
+            "message": "Claude Code CLI not found in PATH. Please install Claude Code or ensure 'claude' is available in your PATH."
+        }
+
     try:
         # Create a pseudo-terminal pair
         master, slave = pty.openpty()
@@ -137,12 +145,15 @@ def capture_limits() -> dict | None:
 
         return None
 
+    except FileNotFoundError:
+        # This shouldn't happen since we check above, but handle it gracefully
+        return {
+            "error": "claude_not_found",
+            "message": "Claude Code CLI not found. Please install Claude Code."
+        }
     except Exception as e:
-        # Debug: print the error to help diagnose issues
-        import sys
-        print(f"[DEBUG] capture_limits failed: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+        # Silent failure for other errors (network issues, parsing errors, etc.)
+        # Returning None allows the app to continue without limits data
         return None
 
 

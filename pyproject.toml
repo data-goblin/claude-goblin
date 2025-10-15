@@ -1,6 +1,6 @@
 [project]
 name = "claude-goblin"
-version = "0.1.6"
+version = "0.1.7"
 description = "Python CLI for Claude Code utilities and usage tracking/analytics"
 readme = "README.md"
 requires-python = ">=3.10"

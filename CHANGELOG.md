@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2025-10-15
+
+### Fixed
+- Fixed `FileNotFoundError` when `claude` CLI is not in PATH - now shows helpful error message instead of traceback
+- Improved error handling in `capture_limits()` to gracefully handle missing Claude Code CLI
+- Added user-friendly warning when limits tracking fails due to missing `claude` command
+
 ## [0.1.6] - 2025-10-15
 
 ### Added

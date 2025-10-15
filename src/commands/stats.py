@@ -84,6 +84,9 @@ def run(console: Console, fast: bool = False) -> None:
                         week_reset=limits["week_reset"],
                         opus_reset=limits["opus_reset"],
                     )
+                elif limits and "error" in limits:
+                    console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
+                    console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
     # Step 3: Display stats from DB
     db_stats = get_database_stats()

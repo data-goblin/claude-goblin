@@ -141,6 +141,9 @@ def run(console: Console) -> None:
                             week_reset=limits["week_reset"],
                             opus_reset=limits["opus_reset"],
                         )
+                    elif limits and "error" in limits:
+                        console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
+                        console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
         # Load data from database
         with console.status(f"[bold #ff8800]Loading data for {year_filter}...", spinner="dots", spinner_style="#ff8800"):

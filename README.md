@@ -75,9 +75,12 @@ pip install -e ".[export]"
 
 ## First-Time Setup
 
-After installation, start tracking your Claude Code usage:
+After installation, ensure the `claude` CLI is in your PATH, then start tracking:
 
 ```bash
+# Verify claude CLI is accessible
+which claude
+
 # View your current usage dashboard
 ccg usage
 
@@ -85,7 +88,7 @@ ccg usage
 ccg setup-hooks usage
 ```
 
-**Note**: The `usage` command automatically saves your data to the historical database every time you run it. No manual setup required.
+**Note**: The `usage` command automatically saves your data to the historical database every time you run it. No manual setup required. If `claude` is not in your PATH, see [Troubleshooting](#troubleshooting) below.
 
 ### Commands Explained
 
@@ -451,6 +454,28 @@ I don't have much time but I'll review PRs when I can.
 ### "No Claude Code data found"
 - Ensure Claude Code is installed and you've used it at least once
 - Check that `~/.claude/projects/` exists and contains `.jsonl` files
+
+### "Claude Code CLI not found in PATH"
+If you see this error, the `claude` command is not accessible. To fix:
+
+```bash
+# Check if claude is installed
+which claude
+
+# If not found, add to PATH (adjust path based on your installation)
+# For zsh (default on macOS):
+echo 'export PATH="$HOME/Library/Application Support/Claude/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# For bash:
+echo 'export PATH="$HOME/Library/Application Support/Claude/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify it works
+claude --version
+```
+
+**Note:** Token tracking will continue to work even if `claude` CLI is not found; only limits tracking requires it.
 
 ### Limits showing "Could not parse usage data"
 - Run `claude` in a trusted folder first
