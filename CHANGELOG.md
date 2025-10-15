@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-10-15
+
+### Added
+- Added awesome-hooks integration from [boxabirds/awesome-hooks](https://github.com/boxabirds/awesome-hooks)
+  - `bundler-standard`: Enforce Bun instead of npm/pnpm/yarn (PreToolUse hook)
+  - `file-name-consistency`: AI-powered file naming consistency checker (PreToolUse hook, requires GEMINI_API_KEY)
+  - `uv-standard`: Custom Python hook to enforce uv instead of pip/pip3 (PreToolUse hook)
+- Added `--user` flag to `setup-hooks` and `remove-hooks` commands
+  - Default (project-level): Hooks install to `.claude/` in current directory
+  - With `--user`: Hooks install to `~/.claude/` for all projects
+- Added `docs/attributions.md` with full attribution to awesome-hooks and dependencies
+
+### Changed
+- Hook installation now supports two scopes: project-level (default) and user-level (`--user`)
+- Project-level hooks install to `.claude/hooks/` in current working directory
+- User-level hooks install to `~/.claude/awesome-hooks/` in home directory
+- Updated README with comprehensive awesome-hooks documentation and examples
+- Hook removal is now scope-aware and only removes intended hooks (preserves custom hooks)
+
+### Technical
+- Created `src/hooks/awesome_hooks.py` module for PreToolUse hook management
+- Enhanced `uv-standard.py` with robust command detection (handles quotes, comments, sudo, etc.)
+- Hooks correctly distinguish between pip execution vs pip as substring/argument
+- All 17 edge cases tested and passing for hook robustness
+
 ## [0.1.5] - 2025-10-13
 
 ### Added
