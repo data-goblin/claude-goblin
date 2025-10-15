@@ -211,41 +211,60 @@ def status_bar_command(
 
 @app.command(name="setup-hooks")
 def setup_hooks_command(
-    hook_type: Optional[str] = typer.Argument(None, help="Hook type: usage, audio, audio-tts, or png"),
+    hook_type: Optional[str] = typer.Argument(None, help="Hook type: usage, audio, audio-tts, png, bundler-standard, file-name-consistency, or uv-standard"),
+    user: bool = typer.Option(False, "--user", help="Install hooks at user level (~/.claude/) instead of project level (.claude/)"),
 ):
     """
     Setup Claude Code hooks for automation.
 
-    Available hooks:
+    By default, hooks are installed at the project level (.claude/settings.json in current directory).
+    Use --user to install at user level (~/.claude/settings.json for all projects).
+
+    Available Claude Goblin hooks:
     - usage: Auto-track usage after each Claude response
     - audio: Play sounds for completion, permission, and compaction (3 sounds)
     - audio-tts: Speak messages using TTS with hook selection (macOS only)
     - png: Auto-update usage PNG after each Claude response
 
+    Available awesome-hooks (PreToolUse):
+    - bundler-standard: Enforce Bun instead of npm/pnpm/yarn
+    - file-name-consistency: Ensure consistent file naming conventions
+    - uv-standard: Enforce uv instead of pip/pip3
+
     Examples:
-        ccg setup-hooks usage      Enable automatic usage tracking
-        ccg setup-hooks audio      Enable audio notifications (3 sounds)
-        ccg setup-hooks audio-tts  Enable TTS (choose which hooks)
-        ccg setup-hooks png        Enable automatic PNG exports
+        ccg setup-hooks usage              Enable usage tracking (project-level)
+        ccg setup-hooks usage --user       Enable usage tracking (user-level)
+        ccg setup-hooks audio              Enable audio notifications
+        ccg setup-hooks audio-tts          Enable TTS (choose which hooks)
+        ccg setup-hooks png                Enable automatic PNG exports
+        ccg setup-hooks uv-standard        Enforce uv for Python packages
+        ccg setup-hooks bundler-standard   Enforce Bun for JS packages
     """
-    setup_hooks(console, hook_type)
+    setup_hooks(console, hook_type, user=user)
 
 
 @app.command(name="remove-hooks")
 def remove_hooks_command(
-    hook_type: Optional[str] = typer.Argument(None, help="Hook type to remove: usage, audio, audio-tts, png, or leave empty for all"),
+    hook_type: Optional[str] = typer.Argument(None, help="Hook type to remove: usage, audio, audio-tts, png, bundler-standard, file-name-consistency, uv-standard, or leave empty for all"),
+    user: bool = typer.Option(False, "--user", help="Remove hooks from user level (~/.claude/) instead of project level (.claude/)"),
 ):
     """
     Remove Claude Code hooks configured by this tool.
 
+    By default, removes hooks from project level (.claude/settings.json in current directory).
+    Use --user to remove from user level (~/.claude/settings.json).
+
     Examples:
-        ccg remove-hooks           Remove all hooks
-        ccg remove-hooks usage     Remove only usage tracking hook
-        ccg remove-hooks audio     Remove only audio notification hook
-        ccg remove-hooks audio-tts Remove only audio TTS hook
-        ccg remove-hooks png       Remove only PNG export hook
+        ccg remove-hooks                    Remove all hooks (project-level)
+        ccg remove-hooks --user             Remove all hooks (user-level)
+        ccg remove-hooks usage              Remove only usage tracking hook
+        ccg remove-hooks audio              Remove only audio notification hook
+        ccg remove-hooks audio-tts          Remove only audio TTS hook
+        ccg remove-hooks png                Remove only PNG export hook
+        ccg remove-hooks uv-standard        Remove only uv-standard hook
+        ccg remove-hooks bundler-standard   Remove only bundler-standard hook
     """
-    remove_hooks(console, hook_type)
+    remove_hooks(console, hook_type, user=user)
 
 
 @app.command(name="help", hidden=True)
