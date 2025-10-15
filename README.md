@@ -121,7 +121,11 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | `ccg setup-hooks audio` | Play sounds for completion, permission & compaction |
 | `ccg setup-hooks audio-tts` | Speak notifications using TTS (macOS, multi-hook) |
 | `ccg setup-hooks png` | Auto-generate PNG after each response |
-| `ccg remove-hooks [type]` | Remove hooks (usage\|audio\|audio-tts\|png, or all) |
+| **Awesome-hooks (PreToolUse)** | |
+| `ccg setup-hooks uv-standard` | Enforce uv instead of pip/pip3 |
+| `ccg setup-hooks bundler-standard` | Enforce Bun instead of npm/pnpm/yarn |
+| `ccg setup-hooks file-name-consistency` | Ensure consistent file naming |
+| `ccg remove-hooks [type]` | Remove hooks (any hook type, or all) |
 
 ## Data Source
 
@@ -253,7 +257,7 @@ Example:
 
 Claude Goblin can integrate with Claude Code's hook system to automate various tasks. Hooks trigger automatically based on Claude Code events.
 
-### Available Hook Types
+### Claude Goblin Hook Types
 
 #### Usage Hook
 Automatically tracks usage data after each Claude response:
@@ -306,6 +310,54 @@ ccg setup-hooks png
 
 Requires export dependencies: `pip install "claude-goblin[export]"`
 
+### Awesome-hooks (PreToolUse)
+
+Claude Goblin includes PreToolUse hooks from [awesome-hooks](https://github.com/boxabirds/awesome-hooks) by [@boxabirds](https://github.com/boxabirds), plus a custom Python/uv enforcement hook. These hooks intercept and validate commands before they execute.
+
+#### uv-standard Hook
+Enforces uv usage instead of pip/pip3:
+```bash
+ccg setup-hooks uv-standard
+```
+
+**What it does:**
+- Intercepts pip/pip3 commands in Bash
+- Blocks them and suggests uv equivalents
+- Ensures you use uv for Python package management
+
+**Requirements:** uv package installer ([installation](https://github.com/astral-sh/uv))
+
+#### bundler-standard Hook
+Enforces Bun usage instead of npm/pnpm/yarn:
+```bash
+ccg setup-hooks bundler-standard
+```
+
+**What it does:**
+- Intercepts npm/pnpm/yarn commands in Bash
+- Blocks them and suggests Bun equivalents
+- Ensures you use Bun for JavaScript package management
+
+**Requirements:** Bun runtime ([installation](https://bun.sh))
+
+#### file-name-consistency Hook
+Ensures consistent file naming conventions:
+```bash
+ccg setup-hooks file-name-consistency
+```
+
+**What it does:**
+- Analyzes your project's file naming patterns using AI
+- Blocks files with inconsistent naming
+- Suggests correctly formatted filenames
+
+**Requirements:** GEMINI_API_KEY environment variable ([get your key](https://aistudio.google.com/apikey))
+
+Set the API key in your shell profile:
+```bash
+export GEMINI_API_KEY="your-api-key-here"
+```
+
 ### Removing Hooks
 
 ```bash
@@ -314,6 +366,9 @@ ccg remove-hooks usage
 ccg remove-hooks audio
 ccg remove-hooks audio-tts
 ccg remove-hooks png
+ccg remove-hooks uv-standard
+ccg remove-hooks bundler-standard
+ccg remove-hooks file-name-consistency
 
 # Remove all Claude Goblin hooks
 ccg remove-hooks
@@ -419,3 +474,8 @@ Built with:
 - [Rich](https://github.com/Textualize/rich) - Terminal UI framework
 - [Pillow](https://python-pillow.org/) - Image processing (optional)
 - [CairoSVG](https://cairosvg.org/) - SVG to PNG conversion (optional)
+
+Includes hooks from:
+- [awesome-hooks](https://github.com/boxabirds/awesome-hooks) by [@boxabirds](https://github.com/boxabirds) - PreToolUse hooks for enforcing development standards
+
+See [docs/attributions.md](docs/attributions.md) for full attribution details.
