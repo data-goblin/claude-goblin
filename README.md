@@ -1,5 +1,8 @@
 # Claude Code Goblin
 
+> [!WARNING]
+> This project is in active development (pre-1.0.0). Issues are not actively tracked until version 1.0.0 is released. Features may change without notice.
+
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-required-orange?logo=anthropic)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
