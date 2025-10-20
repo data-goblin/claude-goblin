@@ -118,7 +118,8 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             # Current models
             ('claude-opus-4-1-20250805', 15.00, 75.00, 18.75, 1.50, 'Current flagship model'),
             ('claude-sonnet-4-5-20250929', 3.00, 15.00, 3.75, 0.30, 'Current balanced model (≤200K tokens)'),
-            ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 'Current fast model'),
+            ('claude-haiku-4-5-20251001', 1.00, 5.00, 1.25, 0.10, 'Claude Haiku 4.5 - New fast model'),
+            ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 'Claude 3.5 Haiku - Legacy fast model'),
 
             # Legacy models (approximate pricing)
             ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 'Legacy Sonnet 4'),
