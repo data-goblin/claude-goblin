@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2025-10-20
+
+### Fixed
+- Fixed `ccg limits` and `ccg status-bar` commands failing when Opus usage is at 0%
+  - Claude /usage no longer displays reset time for limits at 0%, causing regex parsing to fail
+  - Updated parsing logic to handle missing reset times gracefully
+- Added Claude Haiku 4.5 pricing ($1/$5 per million input/output tokens)
+  - Previously missing model ID `claude-haiku-4-5-20251001` now properly tracked
+
 ## [0.1.7] - 2025-10-15
 
 ### Fixed
