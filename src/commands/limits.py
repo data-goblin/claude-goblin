@@ -129,18 +129,25 @@ def capture_limits() -> dict | None:
             }
 
         # Parse for percentages and reset times
-        session_match = re.search(r'Current session.*?(\d+)%\s+used.*?Resets\s+(.+?)(?:\n|$)', clean_output, re.DOTALL)
-        week_match = re.search(r'Current week \(all models\).*?(\d+)%\s+used.*?Resets\s+(.+?)(?:\n|$)', clean_output, re.DOTALL)
-        opus_match = re.search(r'Current week \(Opus\).*?(\d+)%\s+used.*?Resets\s+(.+?)(?:\n|$)', clean_output, re.DOTALL)
+        # Note: Reset time might not be shown when usage is 0%
+        session_pct_match = re.search(r'Current session.*?(\d+)%\s+used', clean_output, re.DOTALL)
+        session_reset_match = re.search(r'Current session.*?Resets\s+(.+?)(?:\n|$)', clean_output, re.DOTALL)
 
-        if session_match and week_match and opus_match:
+        week_pct_match = re.search(r'Current week \(all models\).*?(\d+)%\s+used', clean_output, re.DOTALL)
+        week_reset_match = re.search(r'Current week \(all models\).*?Resets\s+(.+?)(?:\n|$)', clean_output, re.DOTALL)
+
+        opus_pct_match = re.search(r'Current week \(Opus\).*?(\d+)%\s+used', clean_output, re.DOTALL)
+        opus_reset_match = re.search(r'Current week \(Opus\).*?Resets\s+(.+?)(?:\n|$)', clean_output, re.DOTALL)
+
+        # If we found at least the percentages, return what we have
+        if session_pct_match and week_pct_match and opus_pct_match:
             return {
-                "session_pct": int(session_match.group(1)),
-                "week_pct": int(week_match.group(1)),
-                "opus_pct": int(opus_match.group(1)),
-                "session_reset": session_match.group(2).strip(),
-                "week_reset": week_match.group(2).strip(),
-                "opus_reset": opus_match.group(2).strip(),
+                "session_pct": int(session_pct_match.group(1)),
+                "week_pct": int(week_pct_match.group(1)),
+                "opus_pct": int(opus_pct_match.group(1)),
+                "session_reset": session_reset_match.group(1).strip() if session_reset_match else "N/A",
+                "week_reset": week_reset_match.group(1).strip() if week_reset_match else "N/A",
+                "opus_reset": opus_reset_match.group(1).strip() if opus_reset_match else "N/A",
             }
 
         return None
