@@ -575,6 +575,10 @@ def get_limits_data(db_path: Path = DEFAULT_DB_PATH) -> dict[str, dict[str, int]
     """
     Get daily maximum limits percentages from the database.
 
+    Backfills missing days with the maximum value from the next earliest day
+    that has data, since usage limits accumulate over time and don't decrease
+    within a period.
+
     Returns a dictionary mapping dates to their max limits:
     {
         "2025-10-11": {"week_pct": 14, "opus_pct": 8},
@@ -606,13 +610,70 @@ def get_limits_data(db_path: Path = DEFAULT_DB_PATH) -> dict[str, dict[str, int]
             ORDER BY date
         """)
 
-        return {
-            row[0]: {
+        # First, get all the raw data
+        raw_data = {}
+        dates = []
+        for row in cursor.fetchall():
+            date = row[0]
+            dates.append(date)
+            raw_data[date] = {
                 "week_pct": row[1] or 0,
                 "opus_pct": row[2] or 0
             }
-            for row in cursor.fetchall()
-        }
+
+        # If no data, return empty
+        if not dates:
+            return {}
+
+        # Create a complete date range from earliest to latest
+        from datetime import datetime, timedelta
+        start_date = datetime.strptime(min(dates), "%Y-%m-%d")
+        end_date = datetime.strptime(max(dates), "%Y-%m-%d")
+
+        # Build the result with backfilling
+        result = {}
+        current_date = start_date
+
+        while current_date <= end_date:
+            date_str = current_date.strftime("%Y-%m-%d")
+
+            if date_str in raw_data:
+                # We have data for this day
+                result[date_str] = raw_data[date_str]
+            else:
+                # Missing day - backfill with the max from the next earliest day with data
+                # Look forward to find the next day with data
+                next_date = current_date + timedelta(days=1)
+                found_data = None
+
+                while next_date <= end_date:
+                    next_date_str = next_date.strftime("%Y-%m-%d")
+                    if next_date_str in raw_data:
+                        found_data = raw_data[next_date_str]
+                        break
+                    next_date += timedelta(days=1)
+
+                if found_data:
+                    # Use the next available data
+                    result[date_str] = found_data
+                else:
+                    # No future data found, use the last known value
+                    # Look backward for the most recent data
+                    prev_date = current_date - timedelta(days=1)
+                    while prev_date >= start_date:
+                        prev_date_str = prev_date.strftime("%Y-%m-%d")
+                        if prev_date_str in result:
+                            result[date_str] = result[prev_date_str]
+                            break
+                        prev_date -= timedelta(days=1)
+
+                    # If still no data found (shouldn't happen), use zeros
+                    if date_str not in result:
+                        result[date_str] = {"week_pct": 0, "opus_pct": 0}
+
+            current_date += timedelta(days=1)
+
+        return result
     finally:
         conn.close()
 
