@@ -3,6 +3,8 @@
 //! Usage tracking and analytics for Claude Code.
 
 mod cli;
+mod data;
+mod models;
 
 
 fn main() {
