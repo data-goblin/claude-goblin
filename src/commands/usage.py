@@ -29,7 +29,7 @@ from src.visualization.dashboard import render_dashboard
 #region Functions
 
 
-def run(console: Console, live: bool = False, fast: bool = False, anon: bool = False) -> None:
+def run(console: Console, live: bool = False, fast: bool = False, anon: bool = False, force: bool = False) -> None:
     """
     Handle the usage command.
 
@@ -41,6 +41,7 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
         live: Enable auto-refresh mode (default: False)
         fast: Skip limits fetching for faster rendering (default: False)
         anon: Anonymize project names to project-001, project-002, etc (default: False)
+        force: Force re-parse all files, ignoring incremental cache (default: False)
 
     Exit:
         Exits with status 0 on success, 1 on error
@@ -49,6 +50,7 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
     run_live = live or "--live" in sys.argv
     skip_limits = fast or "--fast" in sys.argv
     anonymize = anon or "--anon" in sys.argv
+    force_reparse = force or "--force" in sys.argv
 
     try:
         with console.status("[bold #ff8800]Loading Claude Code usage data...", spinner="dots", spinner_style="#ff8800"):
@@ -65,9 +67,9 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
 
         # Run with or without live refresh
         if run_live:
-            _run_live_dashboard(jsonl_files, console, skip_limits, anonymize)
+            _run_live_dashboard(jsonl_files, console, skip_limits, anonymize, force_reparse)
         else:
-            _display_dashboard(jsonl_files, console, skip_limits, anonymize)
+            _display_dashboard(jsonl_files, console, skip_limits, anonymize, force_reparse)
 
     except FileNotFoundError as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -82,7 +84,7 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
         sys.exit(1)
 
 
-def _run_live_dashboard(jsonl_files: list[Path], console: Console, skip_limits: bool = False, anonymize: bool = False) -> None:
+def _run_live_dashboard(jsonl_files: list[Path], console: Console, skip_limits: bool = False, anonymize: bool = False, force: bool = False) -> None:
     """
     Run dashboard with auto-refresh.
 
@@ -91,21 +93,25 @@ def _run_live_dashboard(jsonl_files: list[Path], console: Console, skip_limits: 
         console: Rich console for output
         skip_limits: Skip limits fetching for faster rendering
         anonymize: Anonymize project names
+        force: Force re-parse all files on first run
     """
     console.print(
         f"[dim]Auto-refreshing every {DEFAULT_REFRESH_INTERVAL} seconds. "
         "Press Ctrl+C to exit.[/dim]\n"
     )
 
+    first_run = True
     while True:
         try:
-            _display_dashboard(jsonl_files, console, skip_limits, anonymize)
+            # Only force on first run in live mode
+            _display_dashboard(jsonl_files, console, skip_limits, anonymize, force and first_run)
+            first_run = False
             time.sleep(DEFAULT_REFRESH_INTERVAL)
         except KeyboardInterrupt:
             raise
 
 
-def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: bool = False, anonymize: bool = False) -> None:
+def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: bool = False, anonymize: bool = False, force: bool = False) -> None:
     """
     Ingest JSONL data and display dashboard.
 
@@ -118,6 +124,7 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
         console: Rich console for output
         skip_limits: Skip ALL updates, read directly from DB (fast mode)
         anonymize: Anonymize project names to project-001, project-002, etc
+        force: Force re-parse all files, ignoring incremental cache
     """
     from src.storage.snapshot_db import get_latest_limits, DEFAULT_DB_PATH, get_database_stats
 
@@ -131,7 +138,13 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
     # Update data unless in fast mode
     if not skip_limits:
         # Step 1: Update usage data (incremental - only parse changed files)
-        stale_files, deleted_files = get_stale_files(jsonl_files)
+        if force:
+            # Force mode: treat all files as stale
+            stale_files = jsonl_files
+            deleted_files = []
+            console.print(" [yellow](force mode - reparsing all files)[/yellow]")
+        else:
+            stale_files, deleted_files = get_stale_files(jsonl_files)
 
         if stale_files or deleted_files:
             status_msg = f"[bold #ff8800]Updating {len(stale_files)} changed files..."

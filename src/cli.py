@@ -74,6 +74,7 @@ def usage_command(
     live: bool = typer.Option(False, "--live", help="Auto-refresh dashboard every 5 seconds"),
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
     anon: bool = typer.Option(False, "--anon", help="Anonymize project names to project-001, project-002, etc"),
+    force: bool = typer.Option(False, "--force", help="Force re-parse all files (ignore incremental cache)"),
 ):
     """
     Show usage dashboard with KPI cards and breakdowns.
@@ -87,13 +88,15 @@ def usage_command(
     Use --live for auto-refreshing dashboard.
     Use --fast to skip all updates and read from database only (requires existing database).
     Use --anon to anonymize project names (ranked by usage, project-001 is highest).
+    Use --force to bypass incremental parsing and re-parse all JSONL files.
     """
-    usage.run(console, live=live, fast=fast, anon=anon)
+    usage.run(console, live=live, fast=fast, anon=anon, force=force)
 
 
 @app.command(name="stats")
 def stats_command(
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
+    force: bool = typer.Option(False, "--force", help="Force re-parse all files (ignore incremental cache)"),
 ):
     """
     Show detailed statistics and cost analysis.
@@ -106,8 +109,9 @@ def stats_command(
     - Usage by model: token distribution across different models
 
     Use --fast to skip all updates and read from database only (requires existing database).
+    Use --force to bypass incremental parsing and re-parse all JSONL files.
     """
-    stats.run(console, fast=fast)
+    stats.run(console, fast=fast, force=force)
 
 
 @app.command(name="limits")
