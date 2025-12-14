@@ -22,7 +22,7 @@ from src.commands.restore import app as restore_app
 
 
 # Version
-__version__ = "0.1.9"
+__version__ = "0.1.10"
 
 
 # Create typer app
