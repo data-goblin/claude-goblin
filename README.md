@@ -452,6 +452,72 @@ Contributions welcome! Please:
 
 I don't have much time but I'll review PRs when I can.
 
+
+## Docker Development (Sandboxed Claude Code)
+
+The `.devcontainer/` directory provides a Docker-based development environment for running Claude Code with `--dangerously-skip-permissions` in a safe, network-restricted container.
+
+### Why Use This?
+
+- **Network isolation**: Firewall restricts outbound traffic to only essential services (Anthropic APIs, GitHub, PyPI)
+- **Safe `--dangerously-skip-permissions`**: Claude Code can execute commands freely within the container without affecting your host system
+- **Reproducible environment**: Consistent Python + uv + Claude Code setup
+
+### Quick Start (devcontainer CLI)
+
+The devcontainer CLI is the recommended way to use this setup.
+
+```bash
+# Install devcontainer CLI (one-time)
+npm install -g @devcontainers/cli
+
+# Start the container (from repo root)
+devcontainer up --workspace-folder .
+
+# Run Claude Code inside the container
+devcontainer exec --workspace-folder . claude --dangerously-skip-permissions
+```
+
+### Alternative: Direct Docker
+
+```bash
+# 1. Build the image (from repo root, using -f to specify Dockerfile)
+docker build -t claude-goblin-dev -f .devcontainer/Dockerfile .
+
+# 2. Run the container
+docker run -it --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  -v "$(pwd):/workspace" \
+  -v claude-goblin-claudeconfig:/home/dev/.claude \
+  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  claude-goblin-dev
+
+# 3. Inside container: initialize firewall
+sudo /usr/local/bin/init-firewall.sh
+
+# 4. Run Claude Code with skip-permissions
+claude --dangerously-skip-permissions
+```
+
+### VS Code Dev Containers
+
+If you use VS Code with the Dev Containers extension:
+1. Open this folder in VS Code
+2. Click "Reopen in Container" when prompted (or use Command Palette > "Dev Containers: Reopen in Container")
+3. The container will build and start with firewall initialized
+4. Open a terminal and run `claude --dangerously-skip-permissions`
+
+### What the Firewall Allows
+
+| Service | Purpose |
+|---------|---------|
+| api.anthropic.com | Claude API |
+| claude.ai | Claude web |
+| pypi.org, files.pythonhosted.org | Python packages |
+| github.com (full IP ranges) | Git operations |
+| registry.npmjs.org | npm packages |
+
+All other outbound connections are blocked and logged.
+
 ## Troubleshooting
 
 ### "No Claude Code data found"
