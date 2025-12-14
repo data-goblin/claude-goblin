@@ -72,6 +72,44 @@ Restore database from backup file.
 Restores the usage history database from `~/.claude/usage/usage_history.db.bak`.
 Creates a safety backup of the current database before restoring.
 
+### Cross-Device Sync
+
+#### `ccg sync setup`
+Configure cross-device sync for usage data.
+
+Interactive wizard that guides through:
+1. Storage format selection (SQLite or DuckDB)
+2. Sync provider selection (Syncthing, OneDrive, OneLake, MotherDuck, or None)
+
+**Flags:**
+- `--storage, -s` - Storage format: `sqlite` or `duckdb`
+- `--provider, -p` - Sync provider: `syncthing`, `onedrive`, `onelake`, `motherduck`, `none`
+- `--device-id, -d` - Device identifier (auto-generated if not provided)
+- `--device-name, -n` - Human-readable device name (hostname if not provided)
+- `--yes, -y` - Auto-confirm all prompts (for non-interactive use)
+- `--install` - Auto-install missing dependencies (requires `--yes`)
+- `--workspace, -w` - OneLake workspace name (for OneLake provider)
+- `--lakehouse, -l` - OneLake lakehouse name (for OneLake provider)
+- `--token, -t` - MotherDuck token (for MotherDuck provider)
+- `--onedrive-path` - OneDrive folder path (for OneDrive provider)
+
+#### `ccg sync status`
+Show current sync configuration and status.
+
+Displays:
+- Storage format and database path
+- Sync provider and configuration
+- Device information (ID, name, type)
+- Provider-specific status (connection state, peers, etc.)
+
+#### `ccg sync add-device <device-id>`
+Add a remote device for Syncthing sync.
+
+**Arguments:**
+- `<device-id>` - Syncthing device ID of the peer to add
+
+**Note:** Only available when using Syncthing provider.
+
 ### Hooks (Advanced)
 
 #### `claude-goblin setup-hooks <type>`
@@ -162,6 +200,24 @@ claude-goblin remove-hooks audio
 
 # Delete all historical data (with confirmation)
 claude-goblin delete-usage --force
+
+# Configure sync with Syncthing (interactive)
+ccg sync setup
+
+# Configure sync with SQLite + Syncthing (non-interactive)
+ccg sync setup --storage sqlite --provider syncthing --device-id mac-work --yes
+
+# Configure sync with DuckDB + MotherDuck
+ccg sync setup --storage duckdb --provider motherduck --token md_xxx --yes
+
+# Configure sync with OneLake
+ccg sync setup --provider onelake --workspace "Analytics" --lakehouse "Usage" --yes
+
+# Check sync status
+ccg sync status
+
+# Add Syncthing peer device
+ccg sync add-device ABCD-1234-WXYZ-5678
 ```
 
 ## File Locations
@@ -169,8 +225,10 @@ claude-goblin delete-usage --force
 | File | Location | Purpose |
 |------|----------|---------|
 | **JSONL logs** | `~/.claude/projects/*.jsonl` | Current 30-day usage data from Claude Code |
-| **SQLite DB** | `~/.claude/usage/usage_history.db` | Historical usage data preserved indefinitely |
-| **DB Backup** | `~/.claude/usage/usage_history.db.bak` | Automatic backup created before destructive operations |
-| **Default exports** | `~/.claude/usage/claude-usage-<timestamp>.png` | PNG/SVG heatmaps (default location unless `-o` is used) |
-| **Hook exports** | `~/.claude/usage/claude-usage.png` | Default location for PNG hook auto-updates |
+| **SQLite DB (legacy)** | `~/.claude/usage/usage_history.db` | Historical usage data (no sync) |
+| **SQLite DB (per-device)** | `~/.claude/usage/{device_id}.db` | Per-device database for sync |
+| **DuckDB (per-device)** | `~/.claude/usage/{device_id}.duckdb` | DuckDB database for sync |
+| **DB Backup** | `~/.claude/usage/usage_history.*.bak` | Automatic backup before destructive operations |
+| **Default exports** | `~/.claude/usage/claude-usage.png` | PNG/SVG heatmaps |
 | **Settings** | `~/.claude/settings.json` | Claude Code settings including hooks configuration |
+| **Goblin config** | `~/.claude/goblin_config.json` | Claude Goblin settings (storage, sync, device info) |
