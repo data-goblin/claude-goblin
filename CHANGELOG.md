@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2025-12-14
+
+### Added
+- Devcontainer support for safe `--dangerously-skip-permissions` execution
+  - Docker container with network firewall (iptables/ipset)
+  - Whitelists only essential domains: Anthropic, GitHub, PyPI, npm, MS Learn, MDN
+  - New command: `ccg setup container` to initialize devcontainer in any project
+- Automatic backup before `remove` operations
+  - `ccg remove usage` now creates timestamped backup before deletion
+  - `ccg remove hooks` now creates settings.json backup before modification
+- `uv.lock` for reproducible builds
+
+### Changed
+- **CLI restructured to nested subcommands** for better organization:
+  - `ccg setup-hooks` -> `ccg setup hooks`
+  - `ccg setup-container` -> `ccg setup container`
+  - `ccg remove-hooks` -> `ccg remove hooks`
+  - `ccg delete-usage` -> `ccg remove usage`
+  - `ccg update-usage` -> `ccg update usage`
+  - `ccg restore-backup` -> `ccg restore usage`
+- Export command now uses simplified filename (`claude-usage.png` instead of `claude-usage-<timestamp>.png`)
+
+### Deprecated
+- **Limits tracking temporarily disabled** due to changes in Claude Code's `/usage` output format
+  - `ccg limits` command shows "temporarily unavailable" message
+  - `ccg status-bar` command shows "temporarily unavailable" message
+  - Dashboard no longer displays live limits (token tracking continues to work)
+  - `ccg export --show limits/both` warns that only historical data will be used
+  - Run `claude /usage` directly to view your limits
+  - This will be fixed in a future release
+
 ## [0.1.9] - 2025-10-20
 
 ### Added

@@ -329,9 +329,9 @@ def setup(console: Console, settings: dict, settings_path: Path, hook_type: Opti
             console.print(f"  [bold]{key}[/bold]")
             console.print(f"    {info['description']}")
             console.print(f"    [dim]Requires: {info['requires']}[/dim]\n")
-        console.print("Usage: ccg setup-hooks <hook-name> [--user]")
-        console.print("Example: ccg setup-hooks uv-standard       (project-level)")
-        console.print("Example: ccg setup-hooks uv-standard --user (user-level)")
+        console.print("Usage: ccg setup hooks <hook-name> [--user]")
+        console.print("Example: ccg setup hooks uv-standard       (project-level)")
+        console.print("Example: ccg setup hooks uv-standard --user (user-level)")
         return
 
     # Delegate to specific setup function

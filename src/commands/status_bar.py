@@ -39,19 +39,23 @@ def run(console: Console, limit_type: Literal["session", "weekly", "opus"]) -> N
     """
     Launch macOS menu bar app showing Claude Code usage percentage.
 
-    Displays "CC: XX%" in the menu bar, updating every 5 minutes.
-    The percentage shown depends on the limit_type argument:
-    - session: Current session usage
-    - weekly: Current week (all models) usage
-    - opus: Current week (Opus only) usage
+    NOTE: This feature is temporarily disabled due to changes in Claude Code's
+    output format. Will be re-enabled in a future release.
 
     Args:
         console: Rich console for output
         limit_type: Type of limit to display ("session", "weekly", or "opus")
-
-    Raises:
-        SystemExit: If not running on macOS or rumps is not available
     """
+    console.print()
+    console.print("[yellow]Status bar is temporarily unavailable.[/yellow]")
+    console.print("[dim]Claude Code's /usage output format has changed.[/dim]")
+    console.print("[dim]This feature will be restored in a future release.[/dim]")
+    console.print()
+    console.print("[dim]In the meantime, run 'claude /usage' directly to view your limits.[/dim]")
+    console.print()
+    return
+
+    # --- DISABLED CODE BELOW ---
     # Check platform
     if sys.platform != 'darwin':
         console.print("[red]Error: --status-bar is only available on macOS[/red]")
