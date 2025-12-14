@@ -63,6 +63,12 @@ def run(console: Console) -> None:
             show_mode = sys.argv[i + 1]
             break
 
+    # Warn about limits being temporarily disabled
+    if show_mode in ["limits", "both"]:
+        console.print("[yellow]Note: Limits tracking is temporarily disabled.[/yellow]")
+        console.print("[dim]Export will use historical limits data if available.[/dim]")
+        console.print()
+
     # Parse year filter (--year YYYY)
     year_filter = None
     for i, arg in enumerate(sys.argv):

@@ -31,10 +31,19 @@ def capture_limits() -> dict | None:
     """
     Capture usage limits from `claude /usage` without displaying output.
 
+    NOTE: This feature is temporarily disabled due to changes in Claude Code's
+    output format. Will be re-enabled in a future release.
+
     Returns:
-        Dictionary with keys: session_pct, week_pct, opus_pct,
-        session_reset, week_reset, opus_reset, or None if capture failed
+        Dictionary with error key indicating feature is disabled
     """
+    # Feature temporarily disabled
+    return {
+        "error": "feature_disabled",
+        "message": "Limits tracking temporarily disabled. Run 'claude /usage' directly."
+    }
+
+    # --- DISABLED CODE BELOW ---
     # Check if claude CLI is available
     if not shutil.which('claude'):
         return {
@@ -168,37 +177,19 @@ def run(console: Console) -> None:
     """
     Show current usage limits by parsing `claude /usage` output.
 
-    Uses Python's pty module to create a pseudo-terminal for capturing
-    TUI output from `claude /usage`, then strips ANSI codes and extracts
-    percentage values.
+    NOTE: This feature is temporarily disabled due to changes in Claude Code's
+    output format. Will be re-enabled in a future release.
 
     Args:
         console: Rich console for output
     """
-    try:
-        limits = capture_limits()
-
-        console.print()
-
-        if limits:
-            # Check if it's an error response
-            if "error" in limits:
-                console.print(f"[yellow]{limits['message']}[/yellow]")
-            else:
-                console.print(f"[bold]Session:[/bold] [#ff8800]{limits['session_pct']}%[/#ff8800] (resets [not bold cyan]{limits['session_reset']}[/not bold cyan])")
-                console.print(f"[bold]Week:[/bold]    [#ff8800]{limits['week_pct']}%[/#ff8800] (resets [not bold cyan]{limits['week_reset']}[/not bold cyan])")
-                console.print(f"[bold]Opus:[/bold]    [#ff8800]{limits['opus_pct']}%[/#ff8800] (resets [not bold cyan]{limits['opus_reset']}[/not bold cyan])")
-        else:
-            console.print("[yellow]Could not parse usage data from 'claude /usage'[/yellow]")
-
-        console.print()
-
-    except FileNotFoundError:
-        console.print("[red]Error: 'claude' command not found[/red]")
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        import traceback
-        traceback.print_exc()
+    console.print()
+    console.print("[yellow]Limits tracking is temporarily unavailable.[/yellow]")
+    console.print("[dim]Claude Code's /usage output format has changed.[/dim]")
+    console.print("[dim]This feature will be restored in a future release.[/dim]")
+    console.print()
+    console.print("[dim]In the meantime, run 'claude /usage' directly to view your limits.[/dim]")
+    console.print()
 
 
 #endregion
