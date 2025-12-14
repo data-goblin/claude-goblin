@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-12-14
+
+### Added
+- Cross-device sync support with new `ccg sync` command group
+  - `ccg sync setup` - Interactive wizard or non-interactive with flags
+  - `ccg sync status` - Show current sync configuration
+  - `ccg sync add-device` - Add Syncthing peer device
+- Four sync providers:
+  - Syncthing (P2P, free, no account)
+  - OneDrive (local folder sync)
+  - OneLake (Microsoft Fabric lakehouse)
+  - MotherDuck (DuckDB cloud, DuckDB storage only)
+- DuckDB storage backend as alternative to SQLite
+  - Better for analytical queries and large datasets
+  - Required for MotherDuck cloud sync
+- Per-device database files (`~/.claude/usage/{device_id}.db`) for conflict-free sync
+- Device metadata tracking (device_id, device_name, device_type) on all records
+- Database migration utilities (SQLite ↔ DuckDB)
+- Optional dependencies: `duckdb`, `onelake`, `sync`
+
+### Changed
+- Database schema updated to include device metadata columns
+- Storage module refactored with `get_db_path()` for dynamic path resolution
+
 ## [0.1.10] - 2025-12-14
 
 ### Added
