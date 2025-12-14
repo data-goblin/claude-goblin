@@ -1,6 +1,6 @@
 # Claude Code Goblin
 
-![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
+![Rust](https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust&logoColor=white)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-required-orange?logo=anthropic)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -8,10 +8,7 @@
 > [!WARNING]
 > This project is in active development (pre-1.0.0). Issues are not actively tracked until version 1.0.0 is released. Features may change without notice.
 
-> [!IMPORTANT]
-> **v0.1.10**: Usage limits tracking (`ccg limits`, `ccg status-bar`) is temporarily disabled due to changes in Claude Code's `/usage` output format. Token tracking continues to work normally. Run `claude /usage` directly to view your limits. This will be fixed in a future release.
-
-Python command line tool to help with Claude Code utilities and Claude Code usage analytics and long-term tracking.
+Command line tool for Claude Code utilities and usage analytics with long-term tracking. Written in Rust for fast startup and cross-platform support.
 
 
 **Quick Start:** Install with `pip install claude-goblin` and use `ccg --help` for commands or `ccg usage` to start tracking. Below are some examples of outputs that this command line can give you.
@@ -40,20 +37,21 @@ Python command line tool to help with Claude Code utilities and Claude Code usag
 --- 
 
 
-> [!NOTE] 
-> This tool was developed and tested on macOS (Python 3.13). Should work on Linux and Windows but is untested on those platforms.
+> [!NOTE]
+> Developed primarily on macOS. Should work on Linux and Windows but is less tested on those platforms.
 
 
 
 ## Features
 
 - Local snapshotting of Claude Code logs for analytics
-- ~~Local snapshotting of usage limits from the Claude Code `/usage` command~~ *(temporarily disabled)*
-- Dashboard and stats of usage history
+- Dashboard and stats of usage history with TUI interface
+- GitHub-style activity heatmap export (PNG/SVG)
 - Project anonymization for sharing screenshots (`--anon` flag)
 - Hook setup to automate data logging or analysis of Claude Code
 - Audio notifications for Claude Code completion, permission requests, and conversation compaction
-- Text-to-speech (TTS) notifications with customizable hook selection (macOS only)
+- Text-to-speech (TTS) notifications (cross-platform: macOS, Windows, Linux)
+- macOS menu bar app showing token usage
 - Devcontainer setup for safe `--dangerously-skip-permissions` execution
 
 ## Installation
@@ -66,8 +64,8 @@ uv pip install claude-goblin
 # Or with pip
 pip install claude-goblin
 
-# Optional: Install export dependencies for PNG/SVG generation
-uv pip install "claude-goblin[export]"
+# Or as a tool
+uv tool install claude-goblin
 ```
 
 ### From source
@@ -76,15 +74,12 @@ uv pip install "claude-goblin[export]"
 git clone https://github.com/data-goblin/claude-goblin.git
 cd claude-goblin
 
-# Install with uv (recommended)
-uv pip install -e .
-
-# Or with pip
-pip install -e .
-
-# Optional: Install export dependencies
-uv pip install -e ".[export]"
+# Build with maturin
+pip install maturin
+maturin develop --release
 ```
+
+> **Note:** No extra dependencies needed - PNG/SVG export is built into the Rust binary.
 
 ## First-Time Setup
 
@@ -118,10 +113,9 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | `ccg usage --live` | Auto-refresh dashboard every 5 seconds |
 | `ccg usage --fast` | Skip updates for faster rendering |
 | `ccg usage --anon` | Anonymize project names (project-001, project-002, etc.) |
-| `ccg limits` | ~~Show current usage limits~~ *(temporarily disabled)* |
 | `ccg stats` | Show detailed statistics and cost analysis |
 | `ccg stats --fast` | Skip updates for faster rendering |
-| `ccg status-bar [type]` | ~~Launch macOS menu bar app~~ *(temporarily disabled)* |
+| `ccg status-bar` | Launch macOS menu bar app showing token usage |
 | **Export** | |
 | `ccg export` | Export yearly heatmap as PNG (default) |
 | `ccg export --svg` | Export as SVG image |
@@ -248,10 +242,13 @@ Example heatmap:
 
 ## --status-bar (macOS only)
 
-> [!NOTE]
-> This feature is temporarily disabled due to changes in Claude Code's `/usage` output format. Run `claude /usage` directly to view your limits.
+Launch a menu bar app showing your total Claude Code token usage:
 
-~~Launch a menu bar app showing your Claude Code usage limits.~~
+```bash
+ccg status-bar
+```
+
+The app displays your total token count in the menu bar and can be refreshed or quit from the dropdown menu.
 
 ## Hooks
 
@@ -280,8 +277,8 @@ You'll be prompted to select three sounds:
 
 Supports macOS (10 built-in sounds), Windows, and Linux.
 
-#### Audio TTS Hook (macOS only)
-Speaks notifications aloud using macOS text-to-speech:
+#### Audio TTS Hook (cross-platform)
+Speaks notifications aloud using system text-to-speech:
 ```bash
 ccg setup hooks audio-tts
 ```
@@ -295,7 +292,10 @@ ccg setup hooks audio-tts
 6. Stop + PreCompact
 7. All three (Notification + Stop + PreCompact)
 
-You can also select from 7 different voices (Samantha, Alex, Daniel, Karen, Moira, Fred, Zarvox).
+**Platform support:**
+- **macOS**: Uses `say` command with voice selection (Samantha, Alex, Daniel, Karen, Moira, Fred, Zarvox)
+- **Windows**: Uses Windows SAPI via PowerShell
+- **Linux**: Uses `espeak` (install with `apt install espeak`)
 
 **Example messages:**
 - Notification: Speaks the permission request message
@@ -307,8 +307,6 @@ Auto-generates usage heatmap PNG after each Claude response:
 ```bash
 ccg setup hooks png
 ```
-
-Requires export dependencies: `pip install "claude-goblin[export]"`
 
 ### Awesome-hooks (PreToolUse)
 
@@ -411,9 +409,10 @@ ccg restore usage
 - **Models**: Which Claude models you've used (Sonnet, Opus, Haiku)
 - **Projects**: Folders/directories where you've used Claude
 - **Time**: Daily activity patterns throughout the year
-- ~~**Usage Limits**: Real-time session, weekly, and Opus limits~~ *(temporarily disabled)*
 
 It will also compute how much you would have had to pay if you used API pricing instead of a $200 Max plan.
+
+> **Note:** To view your usage limits, run `claude /usage` directly.
 
 
 ## Technical Details
@@ -431,11 +430,10 @@ The token breakdown shows cache efficiency. High "Cache Read" percentages (80-90
 
 ## Requirements
 
-- Python >= 3.10
+- Python >= 3.8 (for pip install)
 - Claude Code (for generating usage data)
-- Rich >= 13.7.0 (terminal UI)
-- rumps >= 0.4.0 (macOS menu bar app, macOS only)
-- Pillow + CairoSVG (optional, for PNG/SVG export)
+
+All dependencies are bundled in the Rust binary - no Python packages required at runtime.
 
 ## License
 
@@ -542,14 +540,11 @@ source ~/.bashrc
 claude --version
 ```
 
-**Note:** Token tracking will continue to work even if `claude` CLI is not found; only limits tracking requires it.
-
-### Limits showing "temporarily unavailable"
-Limits tracking is currently disabled due to changes in Claude Code's `/usage` output format. Run `claude /usage` directly to view your limits. This will be fixed in a future release.
+**Note:** Token tracking works from the JSONL files - no `claude` CLI required.
 
 ### Export fails
-- Install export dependencies: `pip install -e ".[export]"`
-- For PNG: requires Pillow and CairoSVG
+- Ensure the Rust binary was built correctly: `maturin build --release`
+- Check file permissions in the output directory
 
 ### Database errors
 - Try deleting and recreating: `ccg remove usage --force`
@@ -560,10 +555,12 @@ This project was developed with assistance from Claude Code.
 
 ## Credits
 
-Built with:
-- [Rich](https://github.com/Textualize/rich) - Terminal UI framework
-- [Pillow](https://python-pillow.org/) - Image processing (optional)
-- [CairoSVG](https://cairosvg.org/) - SVG to PNG conversion (optional)
+Built with Rust:
+- [clap](https://crates.io/crates/clap) - Command line argument parsing
+- [ratatui](https://crates.io/crates/ratatui) - Terminal UI framework
+- [rusqlite](https://crates.io/crates/rusqlite) - SQLite database
+- [resvg](https://crates.io/crates/resvg) - SVG rendering
+- [tray-icon](https://crates.io/crates/tray-icon) - macOS menu bar
 
 Includes hooks from:
 - [awesome-hooks](https://github.com/boxabirds/awesome-hooks) by [@boxabirds](https://github.com/boxabirds) - PreToolUse hooks for enforcing development standards

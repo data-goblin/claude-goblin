@@ -11,6 +11,7 @@ use crate::models::UsageRecord;
 
 
 /// Get the default database path.
+#[allow(dead_code)]
 pub fn default_db_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -22,6 +23,7 @@ pub fn default_db_path() -> PathBuf {
 
 /// Daily snapshot of aggregated usage.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DailySnapshot {
     pub date: String,
     pub total_prompts: i64,
@@ -264,6 +266,7 @@ pub fn save_snapshot(records: &[UsageRecord], db_path: &Path) -> Result<usize> {
 
 
 /// Get daily snapshots for a date range.
+#[allow(dead_code)]
 pub fn get_daily_snapshots(
     db_path: &Path,
     start_date: Option<&str>,
@@ -424,6 +427,66 @@ pub fn get_database_stats(db_path: &Path) -> Result<DatabaseStats> {
         cost_by_model,
         total_cost,
     })
+}
+
+
+/// Load historical usage records from the database.
+pub fn load_historical_records(db_path: &Path) -> Result<Vec<UsageRecord>> {
+    if !db_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let conn = Connection::open(db_path)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT date, timestamp, session_id, message_uuid, message_type,
+                model, folder, git_branch, version,
+                input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens
+         FROM usage_records
+         ORDER BY timestamp"
+    )?;
+
+    let records = stmt
+        .query_map([], |row| {
+            let timestamp_str: String = row.get(1)?;
+            let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+
+            let input_tokens: i64 = row.get(9)?;
+            let output_tokens: i64 = row.get(10)?;
+            let cache_creation_tokens: i64 = row.get(11)?;
+            let cache_read_tokens: i64 = row.get(12)?;
+
+            let token_usage = if input_tokens > 0 || output_tokens > 0 {
+                Some(crate::models::TokenUsage {
+                    input_tokens,
+                    output_tokens,
+                    cache_creation_tokens,
+                    cache_read_tokens,
+                })
+            } else {
+                None
+            };
+
+            Ok(UsageRecord {
+                timestamp,
+                session_id: row.get(2)?,
+                message_uuid: row.get(3)?,
+                message_type: row.get(4)?,
+                model: row.get(5)?,
+                folder: row.get(6)?,
+                git_branch: row.get(7)?,
+                version: row.get(8)?,
+                token_usage,
+                content: None,
+                char_count: 0,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(records)
 }
 
 

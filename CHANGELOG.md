@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-12-14
+
+### Changed
+- **Complete rewrite in Rust** - faster startup, smaller binary, cross-platform support
+  - Uses maturin for PyPI distribution (same `pip install claude-goblin` workflow)
+  - All commands work identically to Python version
+  - Database format unchanged - upgrades seamlessly from 0.1.x
+- **audio-tts hook now cross-platform** - works on macOS (say), Windows (SAPI), and Linux (espeak)
+- Status bar now shows total token count (limits display removed due to unreliable parsing)
+
+### Removed
+- **`limits` command removed** - PTY parsing of `claude /usage` was unreliable and broke frequently
+  - Use `claude /usage` directly to view your usage limits
+- `--show limits` and `--show both` flags from export command
+- `limits_snapshots` table no longer populated (historical limits data preserved but not updated)
+
+### Technical
+- Binary distributed via maturin (`bindings = "bin"`)
+- Uses clap for CLI, ratatui for TUI, rusqlite for database
+- SVG/PNG export via resvg and tiny-skia (no Python dependencies needed)
+- Hooks remain as embedded scripts (Python/TypeScript/shell)
+
 ## [0.1.10] - 2025-12-14
 
 ### Added
