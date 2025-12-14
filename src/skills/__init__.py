@@ -19,7 +19,22 @@ SKILLS_DIR = Path(__file__).parent
 
 
 def _parse_skill_frontmatter(skill_path: Path) -> dict:
-    """Parse YAML frontmatter from SKILL.md file (simple parser, no yaml dep)."""
+    """
+    Parse YAML frontmatter from SKILL.md file.
+
+    Uses a simple parser that handles common cases without pyyaml dependency.
+    Supports:
+    - Simple key: value pairs
+    - Quoted values (single or double quotes)
+    - Colons within quoted values
+    - Multi-line values are NOT supported (first line only)
+
+    Args:
+        skill_path: Path to skill directory containing SKILL.md
+
+    Returns:
+        Dictionary with parsed frontmatter fields (name, description, version)
+    """
     skill_md = skill_path / "SKILL.md"
     if not skill_md.exists():
         return {}
@@ -31,16 +46,32 @@ def _parse_skill_frontmatter(skill_path: Path) -> dict:
     if not match:
         return {}
 
-    # Simple YAML parsing for name/description (avoids pyyaml dependency)
     frontmatter = {}
     for line in match.group(1).split('\n'):
         line = line.strip()
-        if ':' in line:
-            key, value = line.split(':', 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key in ('name', 'description', 'version'):
-                frontmatter[key] = value
+        if not line or line.startswith('#'):
+            continue
+
+        # Match key: value pattern, handling quoted values with colons
+        # Pattern: key: "value with: colons" or key: 'value with: colons' or key: simple value
+        key_match = re.match(r'^(\w+):\s*(.*)$', line)
+        if not key_match:
+            continue
+
+        key = key_match.group(1).strip()
+        value = key_match.group(2).strip()
+
+        # Only parse fields we care about
+        if key not in ('name', 'description', 'version'):
+            continue
+
+        # Handle quoted strings (preserves colons inside quotes)
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        elif value.startswith("'") and value.endswith("'"):
+            value = value[1:-1]
+
+        frontmatter[key] = value
 
     return frontmatter
 
@@ -89,6 +120,9 @@ def install_skill(skill_name: str, target_dir: Path | None = None) -> bool:
     """
     Install a bundled skill to the user's Claude skills directory.
 
+    Uses atomic operations to ensure the skill directory is never left in
+    an inconsistent state. If installation fails, any existing skill is preserved.
+
     Args:
         skill_name: Name of the skill to install
         target_dir: Target directory (defaults to ~/.claude/skills/)
@@ -106,14 +140,45 @@ def install_skill(skill_name: str, target_dir: Path | None = None) -> bool:
     target_dir.mkdir(parents=True, exist_ok=True)
     target_skill_dir = target_dir / skill_name
 
-    # Remove existing skill if present
-    if target_skill_dir.exists():
-        shutil.rmtree(target_skill_dir)
+    # Use temporary directory for atomic installation
+    temp_dir = target_dir / f".{skill_name}.installing"
+    backup_dir = target_dir / f".{skill_name}.backup"
 
-    # Copy skill directory
-    shutil.copytree(skill_path, target_skill_dir)
+    try:
+        # Clean up any leftover temp/backup dirs from failed installs
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
 
-    return True
+        # Copy to temp location first
+        shutil.copytree(skill_path, temp_dir)
+
+        # Backup existing skill if present (atomic rename)
+        if target_skill_dir.exists():
+            target_skill_dir.rename(backup_dir)
+
+        # Move temp to final location (atomic on same filesystem)
+        temp_dir.rename(target_skill_dir)
+
+        # Remove backup on success
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+
+        return True
+
+    except (OSError, shutil.Error):
+        # Restore backup if it exists
+        if backup_dir.exists():
+            if target_skill_dir.exists():
+                shutil.rmtree(target_skill_dir)
+            backup_dir.rename(target_skill_dir)
+
+        # Clean up temp dir
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+
+        return False
 
 
 def install_all_skills(target_dir: Path | None = None) -> list[str]:
