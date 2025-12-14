@@ -11,9 +11,12 @@ from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage.snapshot_db import (
     DEFAULT_DB_PATH,
     get_database_stats,
+    get_stale_files,
     get_text_analysis_stats,
+    remove_deleted_file_metadata,
     save_limits_snapshot,
     save_snapshot,
+    update_file_metadata,
 )
 #endregion
 
@@ -21,7 +24,7 @@ from src.storage.snapshot_db import (
 #region Functions
 
 
-def run(console: Console, fast: bool = False) -> None:
+def run(console: Console, fast: bool = False, force: bool = False) -> None:
     """
     Show statistics about the historical database.
 
@@ -35,9 +38,11 @@ def run(console: Console, fast: bool = False) -> None:
     Args:
         console: Rich console for output
         fast: Skip updates, read directly from database (default: False)
+        force: Force re-parse all files, ignoring incremental cache (default: False)
     """
-    # Check for --fast flag in sys.argv for backward compatibility
+    # Check for flags in sys.argv for backward compatibility
     fast_mode = fast or "--fast" in sys.argv
+    force_mode = force or "--force" in sys.argv
 
     # Check if database exists when using --fast
     if fast_mode and not DEFAULT_DB_PATH.exists():
@@ -62,13 +67,32 @@ def run(console: Console, fast: bool = False) -> None:
 
     # Update data unless in fast mode
     if not fast_mode:
-        # Step 1: Ingestion - parse JSONL and save to DB
-        with console.status("[bold #ff8800]Updating database...", spinner="dots", spinner_style="#ff8800"):
-            jsonl_files = get_claude_jsonl_files()
-            if jsonl_files:
-                current_records = parse_all_jsonl_files(jsonl_files)
-                if current_records:
-                    save_snapshot(current_records, storage_mode=get_storage_mode())
+        # Step 1: Ingestion - parse JSONL and save to DB (incremental)
+        jsonl_files = get_claude_jsonl_files()
+        if jsonl_files:
+            if force_mode:
+                # Force mode: treat all files as stale
+                stale_files = jsonl_files
+                deleted_files = []
+                console.print("[yellow]Force mode: reparsing all files[/yellow]")
+            else:
+                stale_files, deleted_files = get_stale_files(jsonl_files)
+
+            if stale_files or deleted_files:
+                status_msg = f"[bold #ff8800]Updating {len(stale_files)} changed files..."
+                with console.status(status_msg, spinner="dots", spinner_style="#ff8800"):
+                    if stale_files:
+                        current_records = parse_all_jsonl_files(stale_files)
+                        if current_records:
+                            save_snapshot(current_records, storage_mode=get_storage_mode())
+
+                        # Update file metadata for parsed files
+                        for file_path in stale_files:
+                            update_file_metadata(file_path, record_count=0)
+
+                    # Clean up deleted file metadata
+                    if deleted_files:
+                        remove_deleted_file_metadata(deleted_files)
 
         # Step 2: Update limits data (if enabled)
         tracking_mode = get_tracking_mode()
