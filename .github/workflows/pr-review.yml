@@ -1,0 +1,113 @@
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Automated Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for diff analysis
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            **/*.py
+
+      - name: Run linting on changed files
+        id: lint
+        if: steps.changed-files.outputs.any_changed == 'true'
+        continue-on-error: true
+        run: |
+          echo "## Lint Results" > lint_report.md
+          echo "" >> lint_report.md
+
+          # Run ruff check
+          echo "### Style Issues" >> lint_report.md
+          echo '```' >> lint_report.md
+          uv run ruff check ${{ steps.changed-files.outputs.all_changed_files }} 2>&1 | tee -a lint_output.txt || true
+          cat lint_output.txt >> lint_report.md
+          echo '```' >> lint_report.md
+          echo "" >> lint_report.md
+
+          # Check if there were issues
+          if [ -s lint_output.txt ] && grep -q "Found" lint_output.txt; then
+            echo "lint_issues=true" >> $GITHUB_OUTPUT
+          else
+            echo "lint_issues=false" >> $GITHUB_OUTPUT
+            echo "No style issues found! :white_check_mark:" >> lint_report.md
+          fi
+
+      - name: Run type checking (if mypy configured)
+        id: typecheck
+        continue-on-error: true
+        run: |
+          echo "" >> lint_report.md
+          echo "### Type Checking" >> lint_report.md
+          if uv run python -c "import mypy" 2>/dev/null; then
+            echo '```' >> lint_report.md
+            uv run mypy src/ --ignore-missing-imports 2>&1 | tail -20 >> lint_report.md || true
+            echo '```' >> lint_report.md
+          else
+            echo "_Type checking skipped (mypy not installed)_" >> lint_report.md
+          fi
+
+      - name: Check for common issues
+        run: |
+          echo "" >> lint_report.md
+          echo "### Quick Checks" >> lint_report.md
+          echo "" >> lint_report.md
+
+          # Check for debug prints
+          if grep -rn "print(" ${{ steps.changed-files.outputs.all_changed_files }} 2>/dev/null | grep -v "console.print\|rich.print"; then
+            echo "- :warning: Found debug `print()` statements (consider using `console.print`)" >> lint_report.md
+          fi
+
+          # Check for TODO comments
+          TODO_COUNT=$(grep -rn "TODO\|FIXME\|XXX\|HACK" ${{ steps.changed-files.outputs.all_changed_files }} 2>/dev/null | wc -l || echo 0)
+          if [ "$TODO_COUNT" -gt "0" ]; then
+            echo "- :memo: Found $TODO_COUNT TODO/FIXME comments" >> lint_report.md
+          fi
+
+          # Check for hardcoded secrets patterns
+          if grep -rn "password\s*=\s*['\"]" ${{ steps.changed-files.outputs.all_changed_files }} 2>/dev/null; then
+            echo "- :rotating_light: **Potential hardcoded password detected!**" >> lint_report.md
+          fi
+
+          echo "" >> lint_report.md
+          echo "---" >> lint_report.md
+          echo "_Automated review by Claude Goblin CI_" >> lint_report.md
+
+      - name: Post review comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-review
+          path: lint_report.md
+
+      - name: Fail if critical issues
+        if: steps.lint.outputs.lint_issues == 'true'
+        run: |
+          echo "::warning::Lint issues found. Please review the PR comment."
+          # Don't fail the workflow, just warn
+          # exit 1
