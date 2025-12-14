@@ -1,5 +1,7 @@
 #region Imports
 import json
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -124,6 +126,11 @@ def remove_hooks(console: Console, hook_type: Optional[str] = None, user: bool =
         # Read existing settings
         with open(settings_path, "r") as f:
             settings = json.load(f)
+
+        # Create backup before modifying
+        backup_path = settings_path.parent / f"settings.{datetime.now().strftime('%Y%m%d_%H%M%S')}.json.bak"
+        shutil.copy2(settings_path, backup_path)
+        console.print(f"[dim]Backup created: {backup_path}[/dim]\n")
 
         if "hooks" not in settings:
             console.print("[yellow]No hooks configured.[/yellow]")
