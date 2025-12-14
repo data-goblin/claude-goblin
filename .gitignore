@@ -9,6 +9,11 @@ wheels/
 .eggs/
 *.egg
 
+# Rust build artifacts
+/target/
+# Keep releases
+!/releases/
+
 # Virtual environments
 .venv/
 venv/
