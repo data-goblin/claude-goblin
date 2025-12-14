@@ -169,8 +169,7 @@ pub fn run() -> anyhow::Result<()> {
             println!("(Not yet implemented)");
         }
         Some(Commands::Stats { fast }) => {
-            println!("Stats command: fast={fast}");
-            println!("(Not yet implemented)");
+            commands::stats::run(fast)?;
         }
         Some(Commands::Export { svg, open, fast, year, output }) => {
             println!("Export command: svg={svg}, open={open}, fast={fast}, year={year:?}, output={output:?}");
