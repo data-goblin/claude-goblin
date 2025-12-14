@@ -5,6 +5,7 @@
 mod cli;
 mod data;
 mod models;
+mod storage;
 
 
 fn main() {
