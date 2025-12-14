@@ -32,17 +32,17 @@ Automatically saves historical snapshots to preserve data beyond the 30-day roll
                                      Defaults to weekly if type not specified
   ccg usage                          Show usage stats (single shot)
   ccg usage --live                   Show usage with auto-refresh
-  ccg update-usage                   Update historical database with latest data
-  ccg setup-hooks <type>             Configure Claude Code hooks (usage|audio|png)
-  ccg remove-hooks [type]            Remove hooks (usage|audio|png, or all if not specified)
+  ccg update usage                   Update historical database with latest data
+  ccg setup hooks <type>             Configure Claude Code hooks (usage|audio|png)
+  ccg remove hooks [type]            Remove hooks (usage|audio|png, or all if not specified)
   ccg export                         Export heatmap as PNG image (default)
                                      Use --svg for SVG format
                                      Use --open to open after export
                                      Use -o FILE to specify output path
                                      Use --year YYYY to select year (default: current)
   ccg stats                          Show historical database statistics
-  ccg restore-backup                 Restore database from backup (.db.bak file)
-  ccg delete-usage -f                Delete all historical data (requires --force)
+  ccg restore usage                  Restore database from backup (.db.bak file)
+  ccg remove usage -f                Delete all historical data (requires --force)
   ccg help                           Show this help message
 
 [bold]Features:[/bold]
@@ -61,9 +61,9 @@ Automatically saves historical snapshots to preserve data beyond the 30-day roll
 [bold]Recommended Setup:[/bold]
   1. Run: ccg usage
      (View your dashboard and save initial snapshot)
-  2. Optional: ccg setup-hooks usage
+  2. Optional: ccg setup hooks usage
      (Configure automatic tracking after each Claude response)
-  3. Optional: ccg setup-hooks audio
+  3. Optional: ccg setup hooks audio
      (Play sound when Claude is ready for input)
 
 [bold]Exit:[/bold]

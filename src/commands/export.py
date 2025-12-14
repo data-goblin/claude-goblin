@@ -106,7 +106,7 @@ def run(console: Console) -> None:
         # Check if database exists when using --fast
         if fast_mode and not DEFAULT_DB_PATH.exists():
             console.print("[red]Error: Cannot use --fast flag without existing database.[/red]")
-            console.print("[yellow]Run 'ccg usage' or 'ccg update-usage' first to create the database.[/yellow]")
+            console.print("[yellow]Run 'ccg usage' or 'ccg update usage' first to create the database.[/yellow]")
             return
 
         # If fast mode, show warning with last update timestamp
