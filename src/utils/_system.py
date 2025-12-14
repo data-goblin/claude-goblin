@@ -43,8 +43,19 @@ def get_sound_command(sound_name: str) -> Optional[str]:
     if system == "Darwin":  # macOS
         return f"afplay /System/Library/Sounds/{sound_name}.aiff &"
     elif system == "Windows":
-        # Windows Media Player command for playing system sounds
-        return f'powershell -c "(New-Object Media.SoundPlayer \'C:\\Windows\\Media\\{sound_name}.wav\').PlaySync();" &'
+        # Map sound names to Windows Media files
+        windows_sounds = {
+            "Windows Notify": "Windows Notify System Generic.wav",
+            "Windows Ding": "Windows Ding.wav",
+            "chimes": "chimes.wav",
+            "chord": "chord.wav",
+            "notify": "notify.wav",
+            "tada": "tada.wav",
+            "Windows Background": "Windows Background.wav",
+        }
+        sound_file = windows_sounds.get(sound_name, f"{sound_name}.wav")
+        # Use Start-Process to run async, -WindowStyle Hidden to suppress window
+        return f'powershell -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -FilePath powershell -ArgumentList \'-c\',\'(New-Object Media.SoundPlayer \\\"C:\\Windows\\Media\\{sound_file}\\\").PlaySync()\'"'
     else:  # Linux
         # Try to use paplay (PulseAudio) or aplay (ALSA)
         # Most Linux systems have one of these
