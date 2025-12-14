@@ -1,0 +1,69 @@
+{
+  "last_updated": "2025-12-14",
+  "source": "https://www.anthropic.com/pricing",
+  "models": {
+    "claude-opus-4-5-20251101": {
+      "input_per_mtok": 15.00,
+      "output_per_mtok": 75.00,
+      "cache_write_per_mtok": 18.75,
+      "cache_read_per_mtok": 1.50,
+      "notes": "Claude Opus 4.5 - Current flagship model"
+    },
+    "claude-opus-4-1-20250805": {
+      "input_per_mtok": 15.00,
+      "output_per_mtok": 75.00,
+      "cache_write_per_mtok": 18.75,
+      "cache_read_per_mtok": 1.50,
+      "notes": "Claude Opus 4.1"
+    },
+    "claude-sonnet-4-5-20250929": {
+      "input_per_mtok": 3.00,
+      "output_per_mtok": 15.00,
+      "cache_write_per_mtok": 3.75,
+      "cache_read_per_mtok": 0.30,
+      "notes": "Claude Sonnet 4.5 - Current balanced model"
+    },
+    "claude-sonnet-4-20250514": {
+      "input_per_mtok": 3.00,
+      "output_per_mtok": 15.00,
+      "cache_write_per_mtok": 3.75,
+      "cache_read_per_mtok": 0.30,
+      "notes": "Claude Sonnet 4"
+    },
+    "claude-haiku-4-5-20251001": {
+      "input_per_mtok": 1.00,
+      "output_per_mtok": 5.00,
+      "cache_write_per_mtok": 1.25,
+      "cache_read_per_mtok": 0.10,
+      "notes": "Claude Haiku 4.5 - Fast model"
+    },
+    "claude-haiku-3-5-20241022": {
+      "input_per_mtok": 0.80,
+      "output_per_mtok": 4.00,
+      "cache_write_per_mtok": 1.00,
+      "cache_read_per_mtok": 0.08,
+      "notes": "Claude 3.5 Haiku - Legacy fast model"
+    },
+    "claude-sonnet-3-7-20250219": {
+      "input_per_mtok": 3.00,
+      "output_per_mtok": 15.00,
+      "cache_write_per_mtok": 3.75,
+      "cache_read_per_mtok": 0.30,
+      "notes": "Claude Sonnet 3.7 - Legacy"
+    },
+    "claude-opus-4-20250514": {
+      "input_per_mtok": 15.00,
+      "output_per_mtok": 75.00,
+      "cache_write_per_mtok": 18.75,
+      "cache_read_per_mtok": 1.50,
+      "notes": "Claude Opus 4 - Legacy"
+    },
+    "<synthetic>": {
+      "input_per_mtok": 0.00,
+      "output_per_mtok": 0.00,
+      "cache_write_per_mtok": 0.00,
+      "cache_read_per_mtok": 0.00,
+      "notes": "Test/synthetic model - no cost"
+    }
+  }
+}
