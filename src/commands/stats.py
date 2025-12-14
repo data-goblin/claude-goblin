@@ -74,7 +74,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
                 # Force mode: treat all files as stale
                 stale_files = jsonl_files
                 deleted_files = []
-                console.print("[yellow]Force mode: reparsing all files[/yellow]")
+                console.print("[yellow]Force mode: reparsing all files (this may take a moment)[/yellow]")
             else:
                 stale_files, deleted_files = get_stale_files(jsonl_files)
 
