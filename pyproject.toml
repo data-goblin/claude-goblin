@@ -1,9 +1,9 @@
 [project]
 name = "claude-goblin"
-version = "0.1.10"
-description = "Python CLI for Claude Code utilities and usage tracking/analytics"
+version = "0.2.0"
+description = "CLI for Claude Code utilities and usage tracking/analytics"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
     {name = "Kurt Buhler"}
@@ -13,7 +13,10 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -21,41 +24,29 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Utilities",
 ]
-dependencies = [
-    "rich>=13.7.0",
-    "typer>=0.9.0",
-    "rumps>=0.4.0; sys_platform == 'darwin'",
-]
 
 [project.urls]
 Homepage = "https://github.com/data-goblin/claude-goblin"
 Repository = "https://github.com/data-goblin/claude-goblin"
 Issues = "https://github.com/data-goblin/claude-goblin/issues"
 
-[project.optional-dependencies]
-export = [
-    "pillow>=10.0.0",
-    "cairosvg>=2.7.0",
-]
-
-[project.scripts]
-claude-goblin = "src.cli:main"
-ccg = "src.cli:main"
-
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src"]
+[tool.maturin]
+# Build as standalone binary (no Python bindings)
+bindings = "bin"
+# Strip symbols for smaller binary
+strip = true
+# Manifest path
+manifest-path = "Cargo.toml"
 
 [dependency-groups]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-faker>=2.0.0",
-    "mypy>=1.7.0",
+    "maturin>=1.7.0",
 ]
 
 [tool.pytest.ini_options]
@@ -64,10 +55,3 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --strict-markers"
-
-[tool.mypy]
-python_version = "3.10"
-strict = true
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
