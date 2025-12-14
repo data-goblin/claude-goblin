@@ -6,7 +6,28 @@ on:
       - 'v*'
 
 jobs:
+  # Only run if tag is on master
+  check-branch:
+    runs-on: ubuntu-latest
+    outputs:
+      on_master: ${{ steps.check.outputs.on_master }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check if tag is on master
+        id: check
+        run: |
+          if git branch -r --contains ${{ github.sha }} | grep -q 'origin/master'; then
+            echo "on_master=true" >> $GITHUB_OUTPUT
+          else
+            echo "on_master=false" >> $GITHUB_OUTPUT
+            echo "::error::Tag must be on master branch to release"
+            exit 1
+          fi
+
   build:
+    needs: check-branch
     uses: ./.github/workflows/build.yml
 
   publish:
