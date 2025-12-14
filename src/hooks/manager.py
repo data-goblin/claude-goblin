@@ -1,5 +1,7 @@
 #region Imports
 import json
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -40,10 +42,10 @@ def setup_hooks(console: Console, hook_type: Optional[str] = None, user: bool = 
         console.print("  [bold]bundler-standard[/bold]     - Enforce Bun instead of npm/pnpm/yarn")
         console.print("  [bold]file-name-consistency[/bold] - Ensure consistent file naming")
         console.print("  [bold]uv-standard[/bold]          - Enforce uv instead of pip/pip3\n")
-        console.print("Usage: ccg setup-hooks <type> [--user]")
-        console.print("Example: ccg setup-hooks usage              (project-level)")
-        console.print("Example: ccg setup-hooks usage --user       (user-level)")
-        console.print("Example: ccg setup-hooks uv-standard        (project-level)")
+        console.print("Usage: ccg setup hooks <type> [--user]")
+        console.print("Example: ccg setup hooks usage              (project-level)")
+        console.print("Example: ccg setup hooks usage --user       (user-level)")
+        console.print("Example: ccg setup hooks uv-standard        (project-level)")
         return
 
     console.print(f"[bold cyan]Setting up {hook_type} hook ({scope}-level)[/bold cyan]\n")
@@ -90,7 +92,7 @@ def setup_hooks(console: Console, hook_type: Optional[str] = None, user: bool = 
             json.dump(settings, f, indent=2)
 
         console.print(f"\n[dim]Hook location: {settings_path}[/dim]")
-        console.print(f"[dim]To remove: ccg remove-hooks {hook_type}{' --user' if user else ''}[/dim]")
+        console.print(f"[dim]To remove: ccg remove hooks {hook_type}{' --user' if user else ''}[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error setting up hooks: {e}[/red]")
@@ -124,6 +126,11 @@ def remove_hooks(console: Console, hook_type: Optional[str] = None, user: bool =
         # Read existing settings
         with open(settings_path, "r") as f:
             settings = json.load(f)
+
+        # Create backup before modifying
+        backup_path = settings_path.parent / f"settings.{datetime.now().strftime('%Y%m%d_%H%M%S')}.json.bak"
+        shutil.copy2(settings_path, backup_path)
+        console.print(f"[dim]Backup created: {backup_path}[/dim]\n")
 
         if "hooks" not in settings:
             console.print("[yellow]No hooks configured.[/yellow]")

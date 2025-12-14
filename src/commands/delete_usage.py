@@ -28,7 +28,7 @@ def run(console: Console) -> None:
 
     if not force:
         console.print("[red]WARNING: This will delete ALL historical usage data![/red]")
-        console.print("[yellow]To confirm deletion, use: ccg delete-usage --force[/yellow]")
+        console.print("[yellow]To confirm deletion, use: ccg remove usage --force[/yellow]")
         return
 
     db_path = DEFAULT_DB_PATH

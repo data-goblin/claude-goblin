@@ -8,6 +8,9 @@
 > [!WARNING]
 > This project is in active development (pre-1.0.0). Issues are not actively tracked until version 1.0.0 is released. Features may change without notice.
 
+> [!IMPORTANT]
+> **v0.1.10**: Usage limits tracking (`ccg limits`, `ccg status-bar`) is temporarily disabled due to changes in Claude Code's `/usage` output format. Token tracking continues to work normally. Run `claude /usage` directly to view your limits. This will be fixed in a future release.
+
 Python command line tool to help with Claude Code utilities and Claude Code usage analytics and long-term tracking.
 
 
@@ -45,22 +48,26 @@ Python command line tool to help with Claude Code utilities and Claude Code usag
 ## Features
 
 - Local snapshotting of Claude Code logs for analytics
-- Local snapshotting of usage limits from the Claude Code `/usage` command
-- Dashboard and stats of usage and limit history
+- ~~Local snapshotting of usage limits from the Claude Code `/usage` command~~ *(temporarily disabled)*
+- Dashboard and stats of usage history
 - Project anonymization for sharing screenshots (`--anon` flag)
 - Hook setup to automate data logging or analysis of Claude Code
 - Audio notifications for Claude Code completion, permission requests, and conversation compaction
 - Text-to-speech (TTS) notifications with customizable hook selection (macOS only)
+- Devcontainer setup for safe `--dangerously-skip-permissions` execution
 
 ## Installation
 
 ### From PyPI (recommended)
 ```bash
-# Install from PyPI
+# Install from PyPI (uv recommended)
+uv pip install claude-goblin
+
+# Or with pip
 pip install claude-goblin
 
 # Optional: Install export dependencies for PNG/SVG generation
-pip install "claude-goblin[export]"
+uv pip install "claude-goblin[export]"
 ```
 
 ### From source
@@ -69,11 +76,14 @@ pip install "claude-goblin[export]"
 git clone https://github.com/data-goblin/claude-goblin.git
 cd claude-goblin
 
-# Install with pip
+# Install with uv (recommended)
+uv pip install -e .
+
+# Or with pip
 pip install -e .
 
 # Optional: Install export dependencies
-pip install -e ".[export]"
+uv pip install -e ".[export]"
 ```
 
 ## First-Time Setup
@@ -88,16 +98,16 @@ which claude
 ccg usage
 
 # (Optional) Enable automatic tracking with hooks
-ccg setup-hooks usage
+ccg setup hooks usage
 ```
 
 **Note**: The `usage` command automatically saves your data to the historical database every time you run it. No manual setup required. If `claude` is not in your PATH, see [Troubleshooting](#troubleshooting) below.
 
 ### Commands Explained
 
-- **`update-usage`**: Update historical database with latest data and fill in missing date gaps with empty records (use when you want continuous date coverage for the heatmap)
+- **`update usage`**: Update historical database with latest data and fill in missing date gaps with empty records (use when you want continuous date coverage for the heatmap)
 
-For most users, just run `usage` regularly and it will handle data tracking automatically. Use `setup-hooks usage` to automate this completely.
+For most users, just run `usage` regularly and it will handle data tracking automatically. Use `setup hooks usage` to automate this completely.
 
 ## Commands
 
@@ -106,12 +116,12 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | **Dashboard & Analytics** | |
 | `ccg usage` | Show usage dashboard with KPI cards and breakdowns |
 | `ccg usage --live` | Auto-refresh dashboard every 5 seconds |
-| `ccg usage --fast` | Skip live limits for faster rendering |
+| `ccg usage --fast` | Skip updates for faster rendering |
 | `ccg usage --anon` | Anonymize project names (project-001, project-002, etc.) |
-| `ccg limits` | Show current usage limits (session, week, Opus) |
+| `ccg limits` | ~~Show current usage limits~~ *(temporarily disabled)* |
 | `ccg stats` | Show detailed statistics and cost analysis |
-| `ccg stats --fast` | Skip live limits for faster rendering |
-| `ccg status-bar [type]` | Launch macOS menu bar app (session\|weekly\|opus) |
+| `ccg stats --fast` | Skip updates for faster rendering |
+| `ccg status-bar [type]` | ~~Launch macOS menu bar app~~ *(temporarily disabled)* |
 | **Export** | |
 | `ccg export` | Export yearly heatmap as PNG (default) |
 | `ccg export --svg` | Export as SVG image |
@@ -119,18 +129,21 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | `ccg export -y 2024` | Export specific year |
 | `ccg export -o output.png` | Specify output file path |
 | **Data Management** | |
-| `ccg update-usage` | Update historical database with latest data |
-| `ccg delete-usage --force` | Delete historical database (requires --force) |
-| `ccg restore-backup` | Restore from backup |
-| **Hooks (Advanced)** | |
-| `ccg setup-hooks usage` | Auto-track usage after each Claude response |
-| `ccg setup-hooks audio` | Play sounds for completion, permission & compaction |
-| `ccg setup-hooks audio-tts` | Speak notifications using TTS (macOS, multi-hook) |
-| `ccg setup-hooks png` | Auto-generate PNG after each response |
-| `ccg setup-hooks uv-standard` | Enforce uv instead of pip/pip3 |
-| `ccg setup-hooks bundler-standard` | Enforce Bun instead of npm/pnpm/yarn |
-| `ccg setup-hooks file-name-consistency` | Ensure consistent file naming |
-| `ccg remove-hooks [type]` | Remove hooks (any hook type, or all) |
+| `ccg update usage` | Update historical database with latest data |
+| `ccg remove usage --force` | Delete historical database (requires --force) |
+| `ccg restore usage` | Restore from backup |
+| **Setup** | |
+| `ccg setup hooks usage` | Auto-track usage after each Claude response |
+| `ccg setup hooks audio` | Play sounds for completion, permission & compaction |
+| `ccg setup hooks audio-tts` | Speak notifications using TTS (macOS, multi-hook) |
+| `ccg setup hooks png` | Auto-generate PNG after each response |
+| `ccg setup hooks uv-standard` | Enforce uv instead of pip/pip3 |
+| `ccg setup hooks bundler-standard` | Enforce Bun instead of npm/pnpm/yarn |
+| `ccg setup hooks file-name-consistency` | Ensure consistent file naming |
+| `ccg setup container` | Setup devcontainer for safe Claude Code execution |
+| **Remove** | |
+| `ccg remove hooks [type]` | Remove hooks (any hook type, or all) |
+| `ccg remove usage --force` | Delete historical database (with backup) |
 
 ## Data Source
 
@@ -235,28 +248,10 @@ Example heatmap:
 
 ## --status-bar (macOS only)
 
-Launch a menu bar app showing your Claude Code usage limits:
+> [!NOTE]
+> This feature is temporarily disabled due to changes in Claude Code's `/usage` output format. Run `claude /usage` directly to view your limits.
 
-```bash
-# Show weekly usage (default)
-ccg status-bar weekly
-
-# Show session usage
-ccg status-bar session
-
-# Show Opus weekly usage
-ccg status-bar opus
-```
-
-The menu bar displays "CC: XX%" and clicking it shows all three limits (Session, Weekly, Opus) with reset times.
-
-**Running in background:**
-- Use `&` to run in background: `ccg status-bar weekly &`
-- Use `nohup` to persist after terminal closes: `nohup ccg status-bar weekly > /dev/null 2>&1 &`
-
-Example:
-
-![example status bar](docs/images/status-bar.png)
+~~Launch a menu bar app showing your Claude Code usage limits.~~
 
 ## Hooks
 
@@ -267,15 +262,15 @@ Claude Goblin can integrate with Claude Code's hook system to automate various t
 #### Usage Hook
 Automatically tracks usage data after each Claude response:
 ```bash
-ccg setup-hooks usage
+ccg setup hooks usage
 ```
 
-This adds a hook that runs `ccg update-usage --fast` after each Claude response, keeping your historical database up-to-date.
+This adds a hook that runs `ccg update usage` after each Claude response, keeping your historical database up-to-date.
 
 #### Audio Hook
 Plays system sounds for three different events:
 ```bash
-ccg setup-hooks audio
+ccg setup hooks audio
 ```
 
 You'll be prompted to select three sounds:
@@ -288,7 +283,7 @@ Supports macOS (10 built-in sounds), Windows, and Linux.
 #### Audio TTS Hook (macOS only)
 Speaks notifications aloud using macOS text-to-speech:
 ```bash
-ccg setup-hooks audio-tts
+ccg setup hooks audio-tts
 ```
 
 **Multi-hook selection** - Choose which events to speak:
@@ -310,7 +305,7 @@ You can also select from 7 different voices (Samantha, Alex, Daniel, Karen, Moir
 #### PNG Hook
 Auto-generates usage heatmap PNG after each Claude response:
 ```bash
-ccg setup-hooks png
+ccg setup hooks png
 ```
 
 Requires export dependencies: `pip install "claude-goblin[export]"`
@@ -322,7 +317,7 @@ Claude Goblin includes PreToolUse hooks from [awesome-hooks](https://github.com/
 #### uv-standard Hook
 Enforces uv usage instead of pip/pip3:
 ```bash
-ccg setup-hooks uv-standard
+ccg setup hooks uv-standard
 ```
 
 **What it does:**
@@ -335,7 +330,7 @@ ccg setup-hooks uv-standard
 #### bundler-standard Hook
 Enforces Bun usage instead of npm/pnpm/yarn:
 ```bash
-ccg setup-hooks bundler-standard
+ccg setup hooks bundler-standard
 ```
 
 **What it does:**
@@ -348,7 +343,7 @@ ccg setup-hooks bundler-standard
 #### file-name-consistency Hook
 Ensures consistent file naming conventions:
 ```bash
-ccg setup-hooks file-name-consistency
+ccg setup hooks file-name-consistency
 ```
 
 **What it does:**
@@ -367,16 +362,16 @@ export GEMINI_API_KEY="your-api-key-here"
 
 ```bash
 # Remove specific hook type
-ccg remove-hooks usage
-ccg remove-hooks audio
-ccg remove-hooks audio-tts
-ccg remove-hooks png
-ccg remove-hooks uv-standard
-ccg remove-hooks bundler-standard
-ccg remove-hooks file-name-consistency
+ccg remove hooks usage
+ccg remove hooks audio
+ccg remove hooks audio-tts
+ccg remove hooks png
+ccg remove hooks uv-standard
+ccg remove hooks bundler-standard
+ccg remove hooks file-name-consistency
 
 # Remove all Claude Goblin hooks
-ccg remove-hooks
+ccg remove hooks
 ```
 
 ## Project Anonymization
@@ -399,10 +394,13 @@ Claude Goblin automatically saves data every time you run `usage`. To manually m
 ccg stats
 
 # Update database with latest data and fill date gaps
-ccg update-usage
+ccg update usage
 
-# Delete all history
-ccg delete-usage -f
+# Delete all history (creates backup first)
+ccg remove usage -f
+
+# Restore from backup
+ccg restore usage
 ```
 
 ## What It Tracks
@@ -413,7 +411,7 @@ ccg delete-usage -f
 - **Models**: Which Claude models you've used (Sonnet, Opus, Haiku)
 - **Projects**: Folders/directories where you've used Claude
 - **Time**: Daily activity patterns throughout the year
-- **Usage Limits**: Real-time session, weekly, and Opus limits
+- ~~**Usage Limits**: Real-time session, weekly, and Opus limits~~ *(temporarily disabled)*
 
 It will also compute how much you would have had to pay if you used API pricing instead of a $200 Max plan.
 
@@ -452,6 +450,72 @@ Contributions welcome! Please:
 
 I don't have much time but I'll review PRs when I can.
 
+
+## Docker Development (Sandboxed Claude Code)
+
+The `.devcontainer/` directory provides a Docker-based development environment for running Claude Code with `--dangerously-skip-permissions` in a safe, network-restricted container.
+
+### Why Use This?
+
+- **Network isolation**: Firewall restricts outbound traffic to only essential services (Anthropic APIs, GitHub, PyPI)
+- **Safe `--dangerously-skip-permissions`**: Claude Code can execute commands freely within the container without affecting your host system
+- **Reproducible environment**: Consistent Python + uv + Claude Code setup
+
+### Quick Start (devcontainer CLI)
+
+The devcontainer CLI is the recommended way to use this setup.
+
+```bash
+# Install devcontainer CLI (one-time)
+npm install -g @devcontainers/cli
+
+# Start the container (from repo root)
+devcontainer up --workspace-folder .
+
+# Run Claude Code inside the container
+devcontainer exec --workspace-folder . claude --dangerously-skip-permissions
+```
+
+### Alternative: Direct Docker
+
+```bash
+# 1. Build the image (from repo root, using -f to specify Dockerfile)
+docker build -t claude-goblin-dev -f .devcontainer/Dockerfile .
+
+# 2. Run the container
+docker run -it --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  -v "$(pwd):/workspace" \
+  -v claude-goblin-claudeconfig:/home/dev/.claude \
+  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  claude-goblin-dev
+
+# 3. Inside container: initialize firewall
+sudo /usr/local/bin/init-firewall.sh
+
+# 4. Run Claude Code with skip-permissions
+claude --dangerously-skip-permissions
+```
+
+### VS Code Dev Containers
+
+If you use VS Code with the Dev Containers extension:
+1. Open this folder in VS Code
+2. Click "Reopen in Container" when prompted (or use Command Palette > "Dev Containers: Reopen in Container")
+3. The container will build and start with firewall initialized
+4. Open a terminal and run `claude --dangerously-skip-permissions`
+
+### What the Firewall Allows
+
+| Service | Purpose |
+|---------|---------|
+| api.anthropic.com | Claude API |
+| claude.ai | Claude web |
+| pypi.org, files.pythonhosted.org | Python packages |
+| github.com (full IP ranges) | Git operations |
+| registry.npmjs.org | npm packages |
+
+All other outbound connections are blocked and logged.
+
 ## Troubleshooting
 
 ### "No Claude Code data found"
@@ -480,16 +544,15 @@ claude --version
 
 **Note:** Token tracking will continue to work even if `claude` CLI is not found; only limits tracking requires it.
 
-### Limits showing "Could not parse usage data"
-- Run `claude` in a trusted folder first
-- Claude needs folder trust to display usage limits
+### Limits showing "temporarily unavailable"
+Limits tracking is currently disabled due to changes in Claude Code's `/usage` output format. Run `claude /usage` directly to view your limits. This will be fixed in a future release.
 
 ### Export fails
 - Install export dependencies: `pip install -e ".[export]"`
 - For PNG: requires Pillow and CairoSVG
 
 ### Database errors
-- Try deleting and recreating: `ccg delete-usage --force`
+- Try deleting and recreating: `ccg remove usage --force`
 - Then run: `ccg usage` to rebuild from current data
 
 ## **AI Tools Disclaimer**: 
