@@ -19,10 +19,11 @@ from src.commands.setup import app as setup_app
 from src.commands.remove import app as remove_app
 from src.commands.update import app as update_app
 from src.commands.restore import app as restore_app
+from src.commands.sync import app as sync_app
 
 
 # Version
-__version__ = "0.1.10"
+__version__ = "0.2.0"
 
 
 # Create typer app
@@ -39,6 +40,7 @@ app.add_typer(setup_app, name="setup")
 app.add_typer(remove_app, name="remove")
 app.add_typer(update_app, name="update")
 app.add_typer(restore_app, name="restore")
+app.add_typer(sync_app, name="sync")
 
 
 def version_callback(value: bool):
@@ -218,6 +220,37 @@ def help_command():
     - Recommended setup workflow
     """
     help_cmd.run(console)
+
+
+@app.command(name="tui")
+def tui_command():
+    """
+    Launch interactive TUI dashboard.
+
+    Opens a rich terminal user interface for viewing and managing
+    Claude Code usage statistics. Requires textual to be installed.
+
+    Install with: pip install claude-goblin[tui]
+
+    Features:
+    - Real-time usage statistics
+    - Activity heatmap
+    - Model breakdown table
+    - Interactive navigation
+
+    Keys:
+        r - Refresh data
+        d - Dashboard view
+        q - Quit
+        ? - Help
+    """
+    try:
+        from src.tui import run_tui
+        run_tui()
+    except ImportError:
+        console.print("[red]Error:[/red] Textual is not installed.")
+        console.print("Install with: [cyan]pip install claude-goblin[tui][/cyan]")
+        raise typer.Exit(1)
 
 
 def main() -> None:

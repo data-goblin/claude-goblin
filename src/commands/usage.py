@@ -15,9 +15,12 @@ from src.config.user_config import get_storage_mode, get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage.snapshot_db import (
     get_database_stats,
+    get_stale_files,
     load_historical_records,
+    remove_deleted_file_metadata,
     save_limits_snapshot,
     save_snapshot,
+    update_file_metadata,
 )
 from src.visualization.dashboard import render_dashboard
 #endregion
@@ -127,13 +130,30 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
 
     # Update data unless in fast mode
     if not skip_limits:
-        # Step 1: Update usage data
-        with console.status("[bold #ff8800]Updating usage data...", spinner="dots", spinner_style="#ff8800"):
-            current_records = parse_all_jsonl_files(jsonl_files)
+        # Step 1: Update usage data (incremental - only parse changed files)
+        stale_files, deleted_files = get_stale_files(jsonl_files)
 
-            # Save to database (with automatic deduplication via UNIQUE constraint)
-            if current_records:
-                save_snapshot(current_records, storage_mode=get_storage_mode())
+        if stale_files or deleted_files:
+            status_msg = f"[bold #ff8800]Updating {len(stale_files)} changed files..."
+            with console.status(status_msg, spinner="dots", spinner_style="#ff8800"):
+                # Only parse files that have changed
+                if stale_files:
+                    current_records = parse_all_jsonl_files(stale_files)
+
+                    # Save to database (with automatic deduplication via UNIQUE constraint)
+                    if current_records:
+                        save_snapshot(current_records, storage_mode=get_storage_mode())
+
+                    # Update file metadata for parsed files
+                    for file_path in stale_files:
+                        # Count records from this file (approximate - use file size as proxy)
+                        update_file_metadata(file_path, record_count=0)
+
+                # Clean up deleted file metadata
+                if deleted_files:
+                    remove_deleted_file_metadata(deleted_files)
+        else:
+            console.print("[dim] (no changes)[/dim]")
 
         # Step 2: Update limits data (if enabled)
         tracking_mode = get_tracking_mode()
