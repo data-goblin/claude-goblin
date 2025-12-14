@@ -2,6 +2,8 @@
 
 use clap::{Parser, Subcommand};
 
+use crate::commands;
+
 
 /// Claude Goblin - CLI for Claude Code usage tracking and analytics
 #[derive(Parser)]
@@ -201,8 +203,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Commands::Update { command }) => {
             match command {
                 UpdateCommands::Usage => {
-                    println!("Update usage");
-                    println!("(Not yet implemented)");
+                    commands::update::update_usage()?;
                 }
             }
         }

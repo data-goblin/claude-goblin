@@ -3,6 +3,7 @@
 //! Usage tracking and analytics for Claude Code.
 
 mod cli;
+mod commands;
 mod config;
 mod data;
 mod models;
