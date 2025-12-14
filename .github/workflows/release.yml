@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: wheels/
+
+      - name: List wheels
+        run: ls -la wheels/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheels/

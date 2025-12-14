@@ -1,0 +1,55 @@
+name: Build
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (ARM Linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build wheel
+        run: maturin build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: target/wheels/*.whl

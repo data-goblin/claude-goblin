@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [master, v0.2.0dev]
+  pull_request:
+    branches: [master]
+
+jobs:
+  check:
+    name: Check & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tests
+        run: cargo test --verbose
+
+  test-macos-features:
+    name: Test macOS features
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tests with macos feature
+        run: cargo test --features macos --verbose
