@@ -1,5 +1,6 @@
 #region Imports
 from datetime import datetime, timedelta
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
 from rich.console import Console, Group
@@ -26,6 +27,23 @@ CLAUDE_ORANGE_RGB = (203, 123, 93)  # #CB7B5D
 DOT_SIZES = [" ", "·", "•", "●", "⬤"]  # Empty space for 0, then dots of increasing size
 
 DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+#endregion
+
+
+#region Helper Functions
+def _parse_path_parts(path_str: str) -> list[str]:
+    """Parse path into parts, handling both Unix and Windows separators."""
+    if "\\" in path_str or (len(path_str) > 1 and path_str[1] == ":"):
+        return list(PureWindowsPath(path_str).parts)
+    return list(PurePosixPath(path_str).parts)
+
+
+def _shorten_path(path_str: str, max_parts: int = 2) -> str:
+    """Shorten a path to show only the last N parts, cross-platform."""
+    parts = _parse_path_parts(path_str)
+    if len(parts) > max_parts:
+        return "/".join(parts[-max_parts:])
+    return path_str
 #endregion
 
 
@@ -485,7 +503,7 @@ def _create_breakdown_tables(overall: DailyStats) -> Group:
     models_table = Table(title="Models Used", border_style="blue")
     models_table.add_column("Model", style="cyan")
     for model in sorted(overall.models):
-        # Shorten long model names for display
+        # Shorten long model names for display (model names use / not paths)
         display_name = model.split("/")[-1] if "/" in model else model
         models_table.add_row(display_name)
 
@@ -493,9 +511,8 @@ def _create_breakdown_tables(overall: DailyStats) -> Group:
     folders_table = Table(title="Project Folders", border_style="yellow")
     folders_table.add_column("Folder", style="cyan")
     for folder in sorted(overall.folders):
-        # Show only last 2 parts of path for brevity
-        parts = folder.split("/")
-        display_name = "/".join(parts[-2:]) if len(parts) > 2 else folder
+        # Show only last 2 parts of path for brevity (cross-platform)
+        display_name = _shorten_path(folder)
         folders_table.add_row(display_name)
 
     # Create side-by-side layout using Table.grid
