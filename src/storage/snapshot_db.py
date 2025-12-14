@@ -1,4 +1,5 @@
 #region Imports
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,78 @@ from src.models.usage_record import UsageRecord
 
 #region Constants
 DEFAULT_DB_PATH = Path.home() / ".claude" / "usage" / "usage_history.db"
+DEVICE_COLUMNS = ["device_id", "device_name", "device_type"]
+#endregion
+
+
+#region Helper Functions
+
+
+def load_model_pricing() -> list[tuple]:
+    """
+    Load model pricing from JSON file with hardcoded fallback.
+
+    Reads pricing data from src/data/model_pricing.json if available,
+    otherwise falls back to hardcoded defaults.
+
+    Returns:
+        List of tuples: (model_name, input_price, output_price, cache_write, cache_read, notes)
+    """
+    # Hardcoded fallback pricing
+    fallback_pricing = [
+        ('claude-opus-4-5-20251101', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4.5 - Current flagship model'),
+        ('claude-opus-4-1-20250805', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4.1'),
+        ('claude-sonnet-4-5-20250929', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 4.5 - Current balanced model'),
+        ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 4'),
+        ('claude-haiku-4-5-20251001', 1.00, 5.00, 1.25, 0.10, 'Claude Haiku 4.5 - Fast model'),
+        ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 'Claude 3.5 Haiku - Legacy fast model'),
+        ('claude-sonnet-3-7-20250219', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 3.7 - Legacy'),
+        ('claude-opus-4-20250514', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4 - Legacy'),
+        ('<synthetic>', 0.00, 0.00, 0.00, 0.00, 'Test/synthetic model - no cost'),
+    ]
+
+    try:
+        # Try to load from JSON file
+        json_path = Path(__file__).parent.parent / "data" / "model_pricing.json"
+        if json_path.exists():
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            pricing = []
+            for model_name, model_data in data.get("models", {}).items():
+                pricing.append((
+                    model_name,
+                    model_data.get("input_per_mtok", 0.0),
+                    model_data.get("output_per_mtok", 0.0),
+                    model_data.get("cache_write_per_mtok", 0.0),
+                    model_data.get("cache_read_per_mtok", 0.0),
+                    model_data.get("notes", ""),
+                ))
+            return pricing if pricing else fallback_pricing
+    except (json.JSONDecodeError, KeyError, OSError):
+        pass
+
+    return fallback_pricing
+
+
+def _add_device_columns_if_missing(cursor: sqlite3.Cursor, table_name: str) -> None:
+    """
+    Add device metadata columns to a table if they don't exist.
+
+    Used for migrating existing databases to support multi-device sync.
+
+    Args:
+        cursor: SQLite cursor
+        table_name: Name of the table to modify
+    """
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    for col in DEVICE_COLUMNS:
+        if col not in existing_columns:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {col} TEXT")
+
+
 #endregion
 
 
@@ -48,9 +121,15 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 output_tokens INTEGER NOT NULL,
                 cache_creation_tokens INTEGER NOT NULL,
                 cache_read_tokens INTEGER NOT NULL,
-                snapshot_timestamp TEXT NOT NULL
+                snapshot_timestamp TEXT NOT NULL,
+                device_id TEXT,
+                device_name TEXT,
+                device_type TEXT
             )
         """)
+
+        # Add device columns if they don't exist (for migration)
+        _add_device_columns_if_missing(cursor, "daily_snapshots")
 
         # Table for detailed usage records
         cursor.execute("""
@@ -70,9 +149,15 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 cache_creation_tokens INTEGER NOT NULL,
                 cache_read_tokens INTEGER NOT NULL,
                 total_tokens INTEGER NOT NULL,
+                device_id TEXT,
+                device_name TEXT,
+                device_type TEXT,
                 UNIQUE(session_id, message_uuid)
             )
         """)
+
+        # Add device columns if they don't exist (for migration)
+        _add_device_columns_if_missing(cursor, "usage_records")
 
         # Index for faster date-based queries
         cursor.execute("""
@@ -90,14 +175,31 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 opus_pct INTEGER,
                 session_reset TEXT,
                 week_reset TEXT,
-                opus_reset TEXT
+                opus_reset TEXT,
+                device_id TEXT,
+                device_name TEXT,
+                device_type TEXT
             )
         """)
+
+        # Add device columns if they don't exist (for migration)
+        _add_device_columns_if_missing(cursor, "limits_snapshots")
 
         # Index for faster date-based queries on limits
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_limits_snapshots_date
             ON limits_snapshots(date)
+        """)
+
+        # Table for tracking JSONL file metadata (for incremental parsing)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS file_metadata (
+                file_path TEXT PRIMARY KEY,
+                mtime_ns INTEGER NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                record_count INTEGER NOT NULL,
+                last_parsed TEXT NOT NULL
+            )
         """)
 
         # Table for model pricing
@@ -113,22 +215,8 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
         """)
 
-        # Populate pricing data for known models
-        pricing_data = [
-            # Current models
-            ('claude-opus-4-1-20250805', 15.00, 75.00, 18.75, 1.50, 'Current flagship model'),
-            ('claude-sonnet-4-5-20250929', 3.00, 15.00, 3.75, 0.30, 'Current balanced model (≤200K tokens)'),
-            ('claude-haiku-4-5-20251001', 1.00, 5.00, 1.25, 0.10, 'Claude Haiku 4.5 - New fast model'),
-            ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 'Claude 3.5 Haiku - Legacy fast model'),
-
-            # Legacy models (approximate pricing)
-            ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 'Legacy Sonnet 4'),
-            ('claude-opus-4-20250514', 15.00, 75.00, 18.75, 1.50, 'Legacy Opus 4'),
-            ('claude-sonnet-3-7-20250219', 3.00, 15.00, 3.75, 0.30, 'Legacy Sonnet 3.7'),
-
-            # Synthetic/test models
-            ('<synthetic>', 0.00, 0.00, 0.00, 0.00, 'Test/synthetic model - no cost'),
-        ]
+        # Populate pricing data from JSON file (with fallback)
+        pricing_data = load_model_pricing()
 
         timestamp = datetime.now().isoformat()
         for model_name, input_price, output_price, cache_write, cache_read, notes in pricing_data:
@@ -145,7 +233,14 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
         conn.close()
 
 
-def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, storage_mode: str = "aggregate") -> int:
+def save_snapshot(
+    records: list[UsageRecord],
+    db_path: Path = DEFAULT_DB_PATH,
+    storage_mode: str = "aggregate",
+    device_id: Optional[str] = None,
+    device_name: Optional[str] = None,
+    device_type: Optional[str] = None,
+) -> int:
     """
     Save usage records to the database as a snapshot.
 
@@ -156,6 +251,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
         records: List of usage records to save
         db_path: Path to the SQLite database file
         storage_mode: "aggregate" (daily totals only) or "full" (individual records)
+        device_id: Device identifier for multi-device sync
+        device_name: Human-readable device name
+        device_type: Device type (macos, windows, linux)
 
     Returns:
         Number of new records saved
@@ -190,8 +288,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                             date, timestamp, session_id, message_uuid, message_type,
                             model, folder, git_branch, version,
                             input_tokens, output_tokens,
-                            cache_creation_tokens, cache_read_tokens, total_tokens
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            cache_creation_tokens, cache_read_tokens, total_tokens,
+                            device_id, device_name, device_type
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         record.date_key,
                         record.timestamp.isoformat(),
@@ -207,6 +306,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                         cache_creation_tokens,
                         cache_read_tokens,
                         total_tokens,
+                        device_id,
+                        device_name,
+                        device_type,
                     ))
                     saved_count += 1
                 except sqlite3.IntegrityError:
@@ -248,8 +350,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                     INSERT OR REPLACE INTO daily_snapshots (
                         date, total_prompts, total_responses, total_sessions, total_tokens,
                         input_tokens, output_tokens, cache_creation_tokens,
-                        cache_read_tokens, snapshot_timestamp
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cache_read_tokens, snapshot_timestamp,
+                        device_id, device_name, device_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     date,
                     row[0] or 0,
@@ -261,6 +364,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                     row[6] or 0,
                     row[7] or 0,
                     timestamp,
+                    device_id,
+                    device_name,
+                    device_type,
                 ))
         else:
             # In aggregate mode, compute from incoming records
@@ -311,8 +417,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                         INSERT OR REPLACE INTO daily_snapshots (
                             date, total_prompts, total_responses, total_sessions, total_tokens,
                             input_tokens, output_tokens, cache_creation_tokens,
-                            cache_read_tokens, snapshot_timestamp
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            cache_read_tokens, snapshot_timestamp,
+                            device_id, device_name, device_type
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         date_key,
                         existing[0] + agg["prompts"],
@@ -324,6 +431,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                         existing[6] + agg["cache_creation_tokens"],
                         existing[7] + agg["cache_read_tokens"],
                         timestamp,
+                        device_id,
+                        device_name,
+                        device_type,
                     ))
                 else:
                     # New date, insert fresh
@@ -331,8 +441,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                         INSERT INTO daily_snapshots (
                             date, total_prompts, total_responses, total_sessions, total_tokens,
                             input_tokens, output_tokens, cache_creation_tokens,
-                            cache_read_tokens, snapshot_timestamp
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            cache_read_tokens, snapshot_timestamp,
+                            device_id, device_name, device_type
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         date_key,
                         agg["prompts"],
@@ -344,6 +455,9 @@ def save_snapshot(records: list[UsageRecord], db_path: Path = DEFAULT_DB_PATH, s
                         agg["cache_creation_tokens"],
                         agg["cache_read_tokens"],
                         timestamp,
+                        device_id,
+                        device_name,
+                        device_type,
                     ))
                 saved_count += 1
 
@@ -361,7 +475,10 @@ def save_limits_snapshot(
     session_reset: str,
     week_reset: str,
     opus_reset: str,
-    db_path: Path = DEFAULT_DB_PATH
+    db_path: Path = DEFAULT_DB_PATH,
+    device_id: Optional[str] = None,
+    device_name: Optional[str] = None,
+    device_type: Optional[str] = None,
 ) -> None:
     """
     Save usage limits snapshot to the database.
@@ -374,6 +491,9 @@ def save_limits_snapshot(
         week_reset: Week reset time
         opus_reset: Opus reset time
         db_path: Path to the SQLite database file
+        device_id: Device identifier for multi-device sync
+        device_name: Human-readable device name
+        device_type: Device type (macos, windows, linux)
 
     Raises:
         sqlite3.Error: If database operation fails
@@ -390,8 +510,9 @@ def save_limits_snapshot(
         cursor.execute("""
             INSERT OR REPLACE INTO limits_snapshots (
                 timestamp, date, session_pct, week_pct, opus_pct,
-                session_reset, week_reset, opus_reset
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                session_reset, week_reset, opus_reset,
+                device_id, device_name, device_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             timestamp,
             date,
@@ -401,6 +522,9 @@ def save_limits_snapshot(
             session_reset,
             week_reset,
             opus_reset,
+            device_id,
+            device_name,
+            device_type,
         ))
 
         conn.commit()
@@ -880,6 +1004,172 @@ def get_database_stats(db_path: Path = DEFAULT_DB_PATH) -> dict:
             "avg_cost_per_session": round(avg_cost_per_session, 2),
             "avg_cost_per_response": round(avg_cost_per_response, 4),
         }
+    finally:
+        conn.close()
+
+
+def get_stale_files(
+    all_files: list[Path],
+    db_path: Path = DEFAULT_DB_PATH
+) -> tuple[list[Path], list[str]]:
+    """
+    Identify which JSONL files need to be re-parsed based on mtime/size changes.
+
+    Compares current file stats against stored metadata to find:
+    - New files (not in database)
+    - Modified files (mtime or size changed)
+    - Deleted files (in database but not on disk)
+
+    Args:
+        all_files: List of all JSONL file paths on disk
+        db_path: Path to the SQLite database file
+
+    Returns:
+        Tuple of (stale_files, deleted_file_paths):
+        - stale_files: List of Path objects that need re-parsing
+        - deleted_file_paths: List of file path strings that were deleted
+    """
+    if not db_path.exists():
+        # No database yet, all files are stale
+        return (all_files, [])
+
+    init_database(db_path)
+
+    conn = sqlite3.connect(db_path)
+    stale_files = []
+    deleted_files = []
+
+    try:
+        cursor = conn.cursor()
+
+        # Get all stored file metadata
+        cursor.execute("SELECT file_path, mtime_ns, size_bytes FROM file_metadata")
+        stored_metadata = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+
+        # Convert current files to set of path strings for comparison
+        current_file_paths = {str(f) for f in all_files}
+
+        # Check each current file
+        for file_path in all_files:
+            path_str = str(file_path)
+            try:
+                stat = file_path.stat()
+                current_mtime_ns = stat.st_mtime_ns
+                current_size = stat.st_size
+
+                if path_str not in stored_metadata:
+                    # New file
+                    stale_files.append(file_path)
+                else:
+                    stored_mtime_ns, stored_size = stored_metadata[path_str]
+                    if current_mtime_ns != stored_mtime_ns or current_size != stored_size:
+                        # Modified file
+                        stale_files.append(file_path)
+            except OSError:
+                # File inaccessible, skip
+                continue
+
+        # Find deleted files (in DB but not on disk)
+        for stored_path in stored_metadata.keys():
+            if stored_path not in current_file_paths:
+                deleted_files.append(stored_path)
+
+        return (stale_files, deleted_files)
+    finally:
+        conn.close()
+
+
+def update_file_metadata(
+    file_path: Path,
+    record_count: int,
+    db_path: Path = DEFAULT_DB_PATH
+) -> None:
+    """
+    Update file metadata after successful parsing.
+
+    Args:
+        file_path: Path to the JSONL file
+        record_count: Number of records parsed from the file
+        db_path: Path to the SQLite database file
+    """
+    init_database(db_path)
+
+    conn = sqlite3.connect(db_path)
+
+    try:
+        cursor = conn.cursor()
+        stat = file_path.stat()
+        timestamp = datetime.now().isoformat()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO file_metadata (
+                file_path, mtime_ns, size_bytes, record_count, last_parsed
+            ) VALUES (?, ?, ?, ?, ?)
+        """, (
+            str(file_path),
+            stat.st_mtime_ns,
+            stat.st_size,
+            record_count,
+            timestamp,
+        ))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_deleted_file_metadata(
+    deleted_paths: list[str],
+    db_path: Path = DEFAULT_DB_PATH
+) -> None:
+    """
+    Remove metadata for files that no longer exist.
+
+    Args:
+        deleted_paths: List of file path strings to remove
+        db_path: Path to the SQLite database file
+    """
+    if not deleted_paths:
+        return
+
+    if not db_path.exists():
+        return
+
+    conn = sqlite3.connect(db_path)
+
+    try:
+        cursor = conn.cursor()
+
+        for path in deleted_paths:
+            cursor.execute("DELETE FROM file_metadata WHERE file_path = ?", (path,))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_file_metadata_count(db_path: Path = DEFAULT_DB_PATH) -> int:
+    """
+    Get the count of files tracked in file_metadata table.
+
+    Args:
+        db_path: Path to the SQLite database file
+
+    Returns:
+        Number of files tracked
+    """
+    if not db_path.exists():
+        return 0
+
+    conn = sqlite3.connect(db_path)
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM file_metadata")
+        return cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet
+        return 0
     finally:
         conn.close()
 #endregion
