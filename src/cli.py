@@ -20,6 +20,7 @@ from src.commands.remove import app as remove_app
 from src.commands.update import app as update_app
 from src.commands.restore import app as restore_app
 from src.commands.sync import app as sync_app
+from src.commands.container import app as container_app
 
 
 # Version
@@ -41,6 +42,7 @@ app.add_typer(remove_app, name="remove")
 app.add_typer(update_app, name="update")
 app.add_typer(restore_app, name="restore")
 app.add_typer(sync_app, name="sync")
+app.add_typer(container_app, name="container")
 
 
 def version_callback(value: bool):
@@ -74,7 +76,7 @@ def usage_command(
     live: bool = typer.Option(False, "--live", help="Auto-refresh dashboard every 5 seconds"),
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
     anon: bool = typer.Option(False, "--anon", help="Anonymize project names to project-001, project-002, etc"),
-    force: bool = typer.Option(False, "--force", help="Force re-parse all files (ignore incremental cache)"),
+    force: bool = typer.Option(False, "--force", help="Force re-parse all JSONL files (may take 4-5s for large histories)"),
 ):
     """
     Show usage dashboard with KPI cards and breakdowns.
@@ -88,7 +90,9 @@ def usage_command(
     Use --live for auto-refreshing dashboard.
     Use --fast to skip all updates and read from database only (requires existing database).
     Use --anon to anonymize project names (ranked by usage, project-001 is highest).
-    Use --force to bypass incremental parsing and re-parse all JSONL files.
+    Use --force to bypass incremental parsing cache and re-parse all JSONL files.
+        Note: May take 4-5 seconds for large histories. Use when data seems stale.
+        In --live mode, --force only applies to the first refresh.
     """
     usage.run(console, live=live, fast=fast, anon=anon, force=force)
 
@@ -96,7 +100,7 @@ def usage_command(
 @app.command(name="stats")
 def stats_command(
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
-    force: bool = typer.Option(False, "--force", help="Force re-parse all files (ignore incremental cache)"),
+    force: bool = typer.Option(False, "--force", help="Force re-parse all JSONL files (may take 4-5s for large histories)"),
 ):
     """
     Show detailed statistics and cost analysis.
@@ -109,7 +113,8 @@ def stats_command(
     - Usage by model: token distribution across different models
 
     Use --fast to skip all updates and read from database only (requires existing database).
-    Use --force to bypass incremental parsing and re-parse all JSONL files.
+    Use --force to bypass incremental parsing cache and re-parse all JSONL files.
+        Note: May take 4-5 seconds for large histories. Use when data seems stale.
     """
     stats.run(console, fast=fast, force=force)
 

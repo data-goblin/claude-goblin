@@ -93,8 +93,18 @@ def _run_live_dashboard(jsonl_files: list[Path], console: Console, skip_limits: 
         console: Rich console for output
         skip_limits: Skip limits fetching for faster rendering
         anonymize: Anonymize project names
-        force: Force re-parse all files on first run
+        force: Force re-parse all files on first run only.
+               Note: In live mode, --force only applies to the initial refresh.
+               Subsequent refreshes use incremental parsing for efficiency.
     """
+    if force:
+        console.print(
+            "[yellow]Note: --force only applies to the first refresh in live mode.[/yellow]"
+        )
+        console.print(
+            "[yellow]Subsequent refreshes will use incremental parsing.[/yellow]\n"
+        )
+
     console.print(
         f"[dim]Auto-refreshing every {DEFAULT_REFRESH_INTERVAL} seconds. "
         "Press Ctrl+C to exit.[/dim]\n"
@@ -103,7 +113,7 @@ def _run_live_dashboard(jsonl_files: list[Path], console: Console, skip_limits: 
     first_run = True
     while True:
         try:
-            # Only force on first run in live mode
+            # Only force on first run in live mode (documented behavior)
             _display_dashboard(jsonl_files, console, skip_limits, anonymize, force and first_run)
             first_run = False
             time.sleep(DEFAULT_REFRESH_INTERVAL)
@@ -142,7 +152,7 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
             # Force mode: treat all files as stale
             stale_files = jsonl_files
             deleted_files = []
-            console.print(" [yellow](force mode - reparsing all files)[/yellow]")
+            console.print("\n[yellow]Force mode: reparsing all files (this may take a moment)[/yellow]")
         else:
             stale_files, deleted_files = get_stale_files(jsonl_files)
 
