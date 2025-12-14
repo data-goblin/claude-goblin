@@ -1,6 +1,6 @@
 [project]
 name = "claude-goblin"
-version = "0.1.10"
+version = "0.2.0"
 description = "Python CLI for Claude Code utilities and usage tracking/analytics"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,6 +37,21 @@ export = [
     "pillow>=10.0.0",
     "cairosvg>=2.7.0",
 ]
+duckdb = [
+    "duckdb>=1.0.0",
+]
+onelake = [
+    "azure-storage-file-datalake>=12.14.0",
+    "azure-identity>=1.15.0",
+]
+sync = [
+    "duckdb>=1.0.0",
+    "azure-storage-file-datalake>=12.14.0",
+    "azure-identity>=1.15.0",
+]
+tui = [
+    "textual>=0.89.0",
+]
 
 [project.scripts]
 claude-goblin = "src.cli:main"
@@ -56,6 +71,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-faker>=2.0.0",
     "mypy>=1.7.0",
+    "ruff>=0.8.0",
 ]
 
 [tool.pytest.ini_options]
@@ -71,3 +87,33 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+    "C901",   # too complex
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
