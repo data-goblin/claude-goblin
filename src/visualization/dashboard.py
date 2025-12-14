@@ -87,6 +87,9 @@ def _fmt(num: int) -> str:
 
 def _gradient_bar(value: int, max_value: int, width: int = 20) -> Text:
     """Create a smooth gradient bar using block characters."""
+    # Guard against invalid width
+    if width <= 0:
+        return Text()
     if max_value == 0:
         return Text("·" * width, style=GHOST)
 
@@ -99,7 +102,7 @@ def _gradient_bar(value: int, max_value: int, width: int = 20) -> Text:
 
     # Full blocks with gradient color based on position
     for i in range(full_blocks):
-        pos_ratio = i / width
+        pos_ratio = i / width  # Safe: width > 0 guaranteed above
         if pos_ratio < 0.3:
             color = RUST
         elif pos_ratio < 0.6:
@@ -112,8 +115,7 @@ def _gradient_bar(value: int, max_value: int, width: int = 20) -> Text:
 
     # Partial block
     if partial > 0 and full_blocks < width:
-        char_idx = int(partial * len(BAR_CHARS))
-        char_idx = min(char_idx, len(BAR_CHARS) - 1)
+        char_idx = max(0, min(int(partial * len(BAR_CHARS)), len(BAR_CHARS) - 1))
         bar.append(BAR_CHARS[char_idx], style=SUNSET)
         full_blocks += 1
 
