@@ -9,10 +9,13 @@ use anyhow::{Context, Result};
 pub const DEFAULT_REFRESH_INTERVAL: u64 = 5;
 
 /// Number of days to show in activity graph.
+#[allow(dead_code)]
 pub const ACTIVITY_GRAPH_DAYS: usize = 365;
 
 /// Graph dimensions.
+#[allow(dead_code)]
 pub const GRAPH_WEEKS: usize = 52;
+#[allow(dead_code)]
 pub const GRAPH_DAYS_PER_WEEK: usize = 7;
 
 

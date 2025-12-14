@@ -2,6 +2,7 @@
 
 mod settings;
 
+#[allow(unused_imports)]
 pub use settings::{
     get_claude_data_dir,
     get_claude_jsonl_files,

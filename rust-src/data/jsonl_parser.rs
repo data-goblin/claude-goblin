@@ -60,6 +60,7 @@ pub fn parse_jsonl_file(file_path: &Path) -> Result<Vec<UsageRecord>> {
 
 
 /// Parse multiple JSONL files and return all usage records.
+#[allow(dead_code)]
 pub fn parse_all_jsonl_files(file_paths: &[&Path]) -> Result<Vec<UsageRecord>> {
     if file_paths.is_empty() {
         anyhow::bail!("No JSONL files provided to parse");

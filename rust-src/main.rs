@@ -2,12 +2,15 @@
 //!
 //! Usage tracking and analytics for Claude Code.
 
+mod aggregation;
 mod cli;
 mod commands;
 mod config;
 mod data;
+mod hooks;
 mod models;
 mod storage;
+mod visualization;
 
 
 fn main() {

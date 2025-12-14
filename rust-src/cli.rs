@@ -165,37 +165,31 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Usage { live, fast, anon }) => {
-            println!("Usage command: live={live}, fast={fast}, anon={anon}");
-            println!("(Not yet implemented)");
+            commands::usage::run(live, fast, anon)?;
         }
         Some(Commands::Stats { fast }) => {
             commands::stats::run(fast)?;
         }
         Some(Commands::Export { svg, open, fast, year, output }) => {
-            println!("Export command: svg={svg}, open={open}, fast={fast}, year={year:?}, output={output:?}");
-            println!("(Not yet implemented)");
+            commands::export::run(svg, open, fast, year, output)?;
         }
         Some(Commands::Setup { command }) => {
             match command {
                 SetupCommands::Hooks { hook_type, user } => {
-                    println!("Setup hooks: type={hook_type:?}, user={user}");
-                    println!("(Not yet implemented)");
+                    crate::hooks::setup_hooks(hook_type.as_deref(), user)?;
                 }
                 SetupCommands::Container { target, name, domains, no_vscode } => {
-                    println!("Setup container: target={target:?}, name={name:?}, domains={domains:?}, no_vscode={no_vscode}");
-                    println!("(Not yet implemented)");
+                    commands::setup::container(target.as_deref(), name.as_deref(), domains.as_deref(), no_vscode)?;
                 }
             }
         }
         Some(Commands::Remove { command }) => {
             match command {
                 RemoveCommands::Hooks { hook_type, user } => {
-                    println!("Remove hooks: type={hook_type:?}, user={user}");
-                    println!("(Not yet implemented)");
+                    crate::hooks::remove_hooks(hook_type.as_deref(), user)?;
                 }
                 RemoveCommands::Usage { force } => {
-                    println!("Remove usage: force={force}");
-                    println!("(Not yet implemented)");
+                    commands::remove::usage(force)?;
                 }
             }
         }
@@ -209,14 +203,12 @@ pub fn run() -> anyhow::Result<()> {
         Some(Commands::Restore { command }) => {
             match command {
                 RestoreCommands::Usage => {
-                    println!("Restore usage");
-                    println!("(Not yet implemented)");
+                    commands::restore::usage()?;
                 }
             }
         }
         Some(Commands::StatusBar) => {
-            println!("Status bar");
-            println!("(Not yet implemented - macOS only)");
+            commands::status_bar::run()?;
         }
         None => {
             // No subcommand, show help
