@@ -101,7 +101,11 @@ def _install_skill(skill_name: str, skills_dir: Path, force: bool):
         raise typer.Exit(1)
 
     # Create target directory
-    skills_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        skills_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        console.print(f"[red]Error:[/red] Cannot create directory {skills_dir}: {e}")
+        raise typer.Exit(1)
 
     # Copy skill file
     target_path = skills_dir / AVAILABLE_SKILLS[skill_name]["file"]
@@ -111,18 +115,27 @@ def _install_skill(skill_name: str, skills_dir: Path, force: bool):
         console.print("Use [cyan]--force[/cyan] to overwrite")
         return
 
-    shutil.copy2(source_path, target_path)
-    console.print(f"[green]Installed:[/green] {skill_name} -> {target_path}")
+    try:
+        shutil.copy2(source_path, target_path)
+        console.print(f"[green]Installed:[/green] {skill_name} -> {target_path}")
+    except (OSError, PermissionError) as e:
+        console.print(f"[red]Error:[/red] Cannot install {skill_name}: {e}")
+        raise typer.Exit(1)
 
 
 def _install_all_skills(skills_dir: Path, force: bool):
     """Install all bundled skills."""
     console.print(f"Installing all skills to {skills_dir}...")
 
-    skills_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        skills_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        console.print(f"[red]Error:[/red] Cannot create directory {skills_dir}: {e}")
+        raise typer.Exit(1)
 
     installed = 0
     skipped = 0
+    errors = 0
 
     for skill_name in AVAILABLE_SKILLS:
         source_path = get_skill_path(skill_name)
@@ -137,11 +150,17 @@ def _install_all_skills(skills_dir: Path, force: bool):
             skipped += 1
             continue
 
-        shutil.copy2(source_path, target_path)
-        console.print(f"[green]Installed:[/green] {skill_name}")
-        installed += 1
+        try:
+            shutil.copy2(source_path, target_path)
+            console.print(f"[green]Installed:[/green] {skill_name}")
+            installed += 1
+        except (OSError, PermissionError) as e:
+            console.print(f"[red]Error:[/red] Cannot install {skill_name}: {e}")
+            errors += 1
 
     console.print()
     console.print(f"Installed {installed} skills, skipped {skipped}")
+    if errors > 0:
+        console.print(f"[red]Failed to install {errors} skills[/red]")
     if skipped > 0:
         console.print("Use [cyan]--force[/cyan] to overwrite existing files")

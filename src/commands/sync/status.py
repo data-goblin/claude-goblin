@@ -4,6 +4,7 @@ Sync status command for Claude Goblin.
 Displays current sync configuration and connection status.
 """
 #region Imports
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -21,14 +22,25 @@ from src.config import user_config
 
 
 def check_syncthing_running() -> bool:
-    """Check if Syncthing daemon is running."""
+    """Check if Syncthing daemon is running (cross-platform)."""
     try:
-        result = subprocess.run(
-            ["pgrep", "-x", "syncthing"],
-            capture_output=True,
-            timeout=5,
-        )
-        return result.returncode == 0
+        if platform.system() == "Windows":
+            # Use tasklist on Windows
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq syncthing.exe"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return "syncthing.exe" in result.stdout
+        else:
+            # Use pgrep on Unix-like systems
+            result = subprocess.run(
+                ["pgrep", "-x", "syncthing"],
+                capture_output=True,
+                timeout=5,
+            )
+            return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
 
