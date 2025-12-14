@@ -39,6 +39,7 @@ def run(console: Console) -> None:
         svg: Export as SVG instead of PNG
         --open: Open file after export
         --fast: Skip updates, read directly from database (faster)
+        --show MODE or -s MODE: What to show (tokens, limits, both) - default: tokens
         --year YYYY or -y YYYY: Filter by year (default: current year)
         -o FILE or --output FILE: Specify output file path
     """
@@ -54,6 +55,13 @@ def run(console: Console) -> None:
 
     # Check for --open flag
     should_open = "--open" in sys.argv
+
+    # Parse --show flag (defaults to "tokens")
+    show_mode = "tokens"
+    for i, arg in enumerate(sys.argv):
+        if arg in ["--show", "-s"] and i + 1 < len(sys.argv):
+            show_mode = sys.argv[i + 1]
+            break
 
     # Parse year filter (--year YYYY)
     year_filter = None
@@ -80,8 +88,7 @@ def run(console: Console) -> None:
             break
 
     if not output_file:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"claude-usage-{timestamp}.{format_type}"
+        output_file = f"claude-usage.{format_type}"
 
     # Use absolute path, or resolve based on whether -o flag was used
     output_path = Path(output_file)
@@ -155,14 +162,15 @@ def run(console: Console) -> None:
 
             stats = aggregate_all(all_records)
 
-            # Load limits data and tracking mode
-            limits_data = get_limits_data()
-            tracking_mode = get_tracking_mode()
+            # Load limits data (only if needed)
+            limits_data = {}
+            if show_mode in ["both", "limits"]:
+                limits_data = get_limits_data()
 
         console.print(f"[cyan]Exporting to {format_type.upper()}...[/cyan]")
 
         if format_type == "png":
-            export_heatmap_png(stats, output_path, limits_data=limits_data, year=year_filter, tracking_mode=tracking_mode)
+            export_heatmap_png(stats, output_path, limits_data=limits_data, year=year_filter, tracking_mode=show_mode)
         else:
             export_heatmap_svg(stats, output_path, year=year_filter)
 
