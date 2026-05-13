@@ -9,7 +9,7 @@ Provides subcommands for cross-device sync configuration:
 #region Imports
 import typer
 
-from src.commands.sync import setup, status, add_device
+from src.commands.sync import setup, status, push
 #endregion
 
 
@@ -25,5 +25,5 @@ app = typer.Typer(
 #region Command Registration
 app.command(name="setup")(setup.setup_sync_command)
 app.command(name="status")(status.sync_status_command)
-app.command(name="add-device")(add_device.add_device_command)
+app.command(name="push")(push.push_command)
 #endregion

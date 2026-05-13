@@ -77,6 +77,7 @@ def usage_command(
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
     anon: bool = typer.Option(False, "--anon", help="Anonymize project names to project-001, project-002, etc"),
     force: bool = typer.Option(False, "--force", help="Force re-parse all JSONL files (may take 4-5s for large histories)"),
+    remote: bool = typer.Option(False, "--remote", "-r", help="Query the remote DuckDB server instead of local"),
 ):
     """
     Show usage dashboard with KPI cards and breakdowns.
@@ -93,14 +94,19 @@ def usage_command(
     Use --force to bypass incremental parsing cache and re-parse all JSONL files.
         Note: May take 4-5 seconds for large histories. Use when data seems stale.
         In --live mode, --force only applies to the first refresh.
+    Use --remote to query the remote server (shows cross-device aggregate data).
     """
-    usage.run(console, live=live, fast=fast, anon=anon, force=force)
+    if remote:
+        usage.run_remote(console, anon=anon)
+    else:
+        usage.run(console, live=live, fast=fast, anon=anon, force=force)
 
 
 @app.command(name="stats")
 def stats_command(
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
     force: bool = typer.Option(False, "--force", help="Force re-parse all JSONL files (may take 4-5s for large histories)"),
+    remote: bool = typer.Option(False, "--remote", "-r", help="Query the remote DuckDB server instead of local"),
 ):
     """
     Show detailed statistics and cost analysis.
@@ -115,8 +121,12 @@ def stats_command(
     Use --fast to skip all updates and read from database only (requires existing database).
     Use --force to bypass incremental parsing cache and re-parse all JSONL files.
         Note: May take 4-5 seconds for large histories. Use when data seems stale.
+    Use --remote to query the remote server (shows cross-device aggregate data).
     """
-    stats.run(console, fast=fast, force=force)
+    if remote:
+        stats.run_remote(console)
+    else:
+        stats.run(console, fast=fast, force=force)
 
 
 @app.command(name="limits")
