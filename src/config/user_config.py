@@ -10,7 +10,7 @@ from typing import Optional
 
 #region Types
 VALID_STORAGE_FORMATS = ["sqlite", "duckdb"]
-VALID_SYNC_PROVIDERS = ["syncthing", "onedrive", "onelake", "motherduck", "none"]
+VALID_SYNC_PROVIDERS = ["quack", "onedrive", "onelake", "motherduck", "none"]
 VALID_DEVICE_TYPES = ["macos", "windows", "linux"]
 
 # Valid device ID pattern: alphanumeric, hyphens, underscores; 1-64 chars
@@ -443,7 +443,18 @@ def validate_sync_config(sync_config: dict, provider: str) -> tuple[bool, Option
     if not isinstance(sync_config, dict):
         return False, "sync_config must be a dictionary"
 
-    if provider == "onelake":
+    if provider == "quack":
+        host = sync_config.get("host", "")
+        if not host:
+            return False, "Quack host is required"
+        port = sync_config.get("port", 9494)
+        if not isinstance(port, int) or port < 1 or port > 65535:
+            return False, "Quack port must be 1-65535"
+        token_source = sync_config.get("token_source", "keychain")
+        if token_source not in ("keychain", "env", "file"):
+            return False, "token_source must be 'keychain', 'env', or 'file'"
+
+    elif provider == "onelake":
         workspace = sync_config.get("workspace", "")
         lakehouse = sync_config.get("lakehouse", "")
         # OneLake workspace/lakehouse names have specific requirements

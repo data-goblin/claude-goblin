@@ -127,7 +127,7 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
 
     This performs two steps:
     1. Ingestion: Read JSONL files and save to DB (with deduplication)
-    2. Display: Read from DB and render dashboard
+    2. Display: Parse JSONL for detailed view, use DB for historical heatmap
 
     Args:
         jsonl_files: List of JSONL files to parse
@@ -144,6 +144,8 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
         console.print("[red]Error: Cannot use --fast flag without existing database.[/red]")
         console.print("[yellow]Run 'ccg usage' (without --fast) first to create the database.[/yellow]")
         return
+
+    current_records = []
 
     # Update data unless in fast mode
     if not skip_limits:
@@ -178,12 +180,14 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
         else:
             console.print("[dim] (no changes)[/dim]")
 
-        # Step 2: Update limits data (if enabled)
+        # Step 2: Update limits data (if enabled and working)
+        # NOTE: Limits tracking is currently disabled due to Claude Code format changes
+        # Silently skip - users can check status with `ccg limits`
         tracking_mode = get_tracking_mode()
         if tracking_mode in ["both", "limits"]:
-            with console.status("[bold #ff8800]Updating usage limits...", spinner="dots", spinner_style="#ff8800"):
-                limits = capture_limits()
-                if limits and "error" not in limits:
+            limits = capture_limits()
+            if limits and "error" not in limits:
+                with console.status("[bold #ff8800]Updating usage limits...", spinner="dots", spinner_style="#ff8800"):
                     save_limits_snapshot(
                         session_pct=limits["session_pct"],
                         week_pct=limits["week_pct"],
@@ -192,13 +196,22 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
                         week_reset=limits["week_reset"],
                         opus_reset=limits["opus_reset"],
                     )
-                elif limits and "error" in limits:
-                    console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
-                    console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
+            # Silently skip if disabled or errored - no warning spam
 
-    # Step 3: Prepare dashboard from database
+        # Step 3a: Parse ALL JSONL files for detailed model/branch/project breakdown
+        # This ensures we always have granular data regardless of storage mode
+        if not current_records:
+            with console.status("[bold #ff8800]Loading usage data...", spinner="dots", spinner_style="#ff8800"):
+                current_records = parse_all_jsonl_files(jsonl_files)
+
+    # Step 3b: Prepare dashboard
     with console.status("[bold #ff8800]Preparing dashboard...", spinner="dots", spinner_style="#ff8800"):
-        all_records = load_historical_records()
+        # In fast mode, load from DB (aggregate records)
+        # Otherwise, use parsed JSONL records for detailed breakdowns
+        if skip_limits:
+            all_records = load_historical_records()
+        else:
+            all_records = current_records if current_records else load_historical_records()
 
         # Get latest limits from DB (if we saved them above or if they exist)
         limits_from_db = get_latest_limits()
@@ -206,7 +219,7 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
     if not all_records:
         console.clear()
         console.print(
-            "[yellow]No usage data found in database. Run --update-usage to ingest data.[/yellow]"
+            "[yellow]No usage data found. Make sure you have Claude Code session files.[/yellow]"
         )
         return
 
@@ -228,6 +241,54 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
 
     # Render dashboard with limits from DB (no live fetch needed)
     render_dashboard(stats, all_records, console, skip_limits=True, clear_screen=False, date_range=date_range, limits_from_db=limits_from_db, fast_mode=skip_limits)
+
+
+def run_remote(console: Console, anon: bool = False) -> None:
+    """
+    Display usage dashboard from the remote DuckDB server.
+
+    Queries the remote for cross-device aggregate data and renders
+    the same dashboard view.
+    """
+    try:
+        from src.storage.quack_remote import (
+            load_historical_records as remote_load,
+            get_latest_limits as remote_limits,
+        )
+
+        with console.status("[bold #ff8800]Connecting to remote...", spinner="dots", spinner_style="#ff8800"):
+            all_records = remote_load()
+            limits_from_db = remote_limits()
+
+        if not all_records:
+            console.print("[yellow]No usage data on remote. Push first with: ccg sync push[/yellow]")
+            return
+
+        console.clear()
+
+        dates = sorted(set(r.date_key for r in all_records))
+        date_range = f"{dates[0]} to {dates[-1]}" if dates else None
+
+        if anon:
+            all_records = _anonymize_projects(all_records)
+
+        stats = aggregate_all(all_records)
+
+        from src.visualization.dashboard import render_dashboard
+        render_dashboard(
+            stats, all_records, console,
+            skip_limits=True, clear_screen=False,
+            date_range=date_range, limits_from_db=limits_from_db,
+            fast_mode=True,
+        )
+        console.print("\n[dim]Source: remote (cross-device aggregate)[/dim]")
+
+    except ImportError:
+        console.print("[red]DuckDB not installed. Install with: uv pip install claude-goblin[duckdb][/red]")
+    except RuntimeError as e:
+        console.print(f"[red]Remote connection failed: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
 
 
 def _anonymize_projects(records: list) -> list:

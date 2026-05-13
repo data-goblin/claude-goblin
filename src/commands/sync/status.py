@@ -4,7 +4,6 @@ Sync status command for Claude Goblin.
 Displays current sync configuration and connection status.
 """
 #region Imports
-import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,50 +18,6 @@ from src.config import user_config
 
 
 #region Helper Functions
-
-
-def check_syncthing_running() -> bool:
-    """Check if Syncthing daemon is running (cross-platform)."""
-    try:
-        if platform.system() == "Windows":
-            # Use tasklist on Windows
-            result = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq syncthing.exe"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            return "syncthing.exe" in result.stdout
-        else:
-            # Use pgrep on Unix-like systems
-            result = subprocess.run(
-                ["pgrep", "-x", "syncthing"],
-                capture_output=True,
-                timeout=5,
-            )
-            return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
-
-
-def get_syncthing_device_id() -> str | None:
-    """Get the local Syncthing device ID."""
-    if not shutil.which("syncthing"):
-        return None
-
-    try:
-        result = subprocess.run(
-            ["syncthing", "--device-id"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-    return None
 
 
 def check_onedrive_path(path: str) -> bool:
@@ -139,7 +94,7 @@ def sync_status_command():
 
     # Provider info
     provider_names = {
-        "syncthing": "Syncthing (P2P)",
+        "quack": "Quack (DuckDB remote)",
         "onedrive": "OneDrive (local folder)",
         "onelake": "OneLake (Fabric)",
         "motherduck": "MotherDuck (cloud)",
@@ -159,42 +114,7 @@ def sync_status_command():
     console.print(table)
 
     # Provider-specific status
-    if sync_provider == "syncthing":
-        console.print()
-        syncthing_table = Table(
-            title="Syncthing Status",
-            show_header=False,
-            box=None,
-            padding=(0, 2),
-        )
-        syncthing_table.add_column("Key", style="bold")
-        syncthing_table.add_column("Value")
-
-        installed = shutil.which("syncthing") is not None
-        syncthing_table.add_row(
-            "Installed",
-            "[green]Yes[/green]" if installed else "[red]No[/red]"
-        )
-
-        if installed:
-            running = check_syncthing_running()
-            syncthing_table.add_row(
-                "Daemon",
-                "[green]Running[/green]" if running else "[yellow]Stopped[/yellow]"
-            )
-
-            st_device_id = get_syncthing_device_id()
-            if st_device_id:
-                # Show truncated ID
-                syncthing_table.add_row("Device ID", f"{st_device_id[:20]}...")
-
-        console.print(syncthing_table)
-
-        if not installed:
-            console.print()
-            console.print("[yellow]Run 'ccg sync setup' to install Syncthing[/yellow]")
-
-    elif sync_provider == "onedrive":
+    if sync_provider == "onedrive":
         console.print()
         od_table = Table(
             title="OneDrive Status",
@@ -264,6 +184,43 @@ def sync_status_command():
         )
 
         console.print(md_table)
+
+    elif sync_provider == "quack":
+        console.print()
+        quack_table = Table(
+            title="Quack Remote Status",
+            show_header=False,
+            box=None,
+            padding=(0, 2),
+        )
+        quack_table.add_column("Key", style="bold")
+        quack_table.add_column("Value")
+
+        host = sync_config.get("host", "Not set")
+        port = sync_config.get("port", 9494)
+        disable_ssl = sync_config.get("disable_ssl", True)
+        token_source = sync_config.get("token_source", "keychain")
+
+        quack_table.add_row("Host", f"{host}:{port}")
+        quack_table.add_row("SSL", "[yellow]Disabled[/yellow] (WireGuard encrypts)" if disable_ssl else "[green]Enabled[/green]")
+        quack_table.add_row("Token Source", token_source)
+
+        # Test connectivity
+        try:
+            import subprocess as sp
+            result = sp.run(
+                ["ping", "-c", "1", "-t", "2", host.split(":")[0]],
+                capture_output=True, timeout=3,
+            )
+            reachable = result.returncode == 0
+            quack_table.add_row(
+                "Reachable",
+                "[green]Yes[/green]" if reachable else "[red]No[/red]"
+            )
+        except Exception:
+            quack_table.add_row("Reachable", "[yellow]Unknown[/yellow]")
+
+        console.print(quack_table)
 
     elif sync_provider == "none":
         console.print()

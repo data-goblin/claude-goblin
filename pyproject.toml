@@ -38,14 +38,17 @@ export = [
     "cairosvg>=2.7.0",
 ]
 duckdb = [
-    "duckdb>=1.0.0",
+    "duckdb>=1.5.2",
+]
+quack = [
+    "duckdb>=1.5.2",
 ]
 onelake = [
     "azure-storage-file-datalake>=12.14.0",
     "azure-identity>=1.15.0",
 ]
 sync = [
-    "duckdb>=1.0.0",
+    "duckdb>=1.5.2",
     "azure-storage-file-datalake>=12.14.0",
     "azure-identity>=1.15.0",
 ]

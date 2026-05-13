@@ -94,12 +94,13 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
                     if deleted_files:
                         remove_deleted_file_metadata(deleted_files)
 
-        # Step 2: Update limits data (if enabled)
+        # Step 2: Update limits data (if enabled and working)
+        # NOTE: Limits tracking is currently disabled due to Claude Code format changes
         tracking_mode = get_tracking_mode()
         if tracking_mode in ["both", "limits"]:
-            with console.status("[bold #ff8800]Updating usage limits...", spinner="dots", spinner_style="#ff8800"):
-                limits = capture_limits()
-                if limits and "error" not in limits:
+            limits = capture_limits()
+            if limits and "error" not in limits:
+                with console.status("[bold #ff8800]Updating usage limits...", spinner="dots", spinner_style="#ff8800"):
                     save_limits_snapshot(
                         session_pct=limits["session_pct"],
                         week_pct=limits["week_pct"],
@@ -108,9 +109,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
                         week_reset=limits["week_reset"],
                         opus_reset=limits["opus_reset"],
                     )
-                elif limits and "error" in limits:
-                    console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
-                    console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
+            # Silently skip if disabled
 
     # Step 3: Display stats from DB
     db_stats = get_database_stats()
@@ -200,6 +199,80 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
         console.print(f"[dim]Detail records: {db_stats['total_records']:,} (full analytics mode)[/dim]")
     else:
         console.print(f"[dim]Storage mode: aggregate (daily totals only)[/dim]")
+
+
+def run_remote(console: Console) -> None:
+    """
+    Show statistics from the remote DuckDB server (cross-device aggregate).
+    """
+    try:
+        from src.storage.quack_remote import get_database_stats as remote_stats
+
+        with console.status("[bold #ff8800]Connecting to remote...", spinner="dots", spinner_style="#ff8800"):
+            db_stats = remote_stats()
+
+        if db_stats["total_records"] == 0 and db_stats["total_prompts"] == 0:
+            console.print("[yellow]No data on remote. Push first with: ccg sync push[/yellow]")
+            return
+
+        console.print("[bold cyan]Claude Code Usage Statistics (Remote)[/bold cyan]\n")
+
+        console.print("[bold]Summary[/bold]")
+        console.print(f"  Total Tokens:        {db_stats['total_tokens']:>15,}")
+        console.print(f"  Total Prompts:       {db_stats['total_prompts']:>15,}")
+        console.print(f"  Total Responses:     {db_stats['total_responses']:>15,}")
+        console.print(f"  Total Sessions:      {db_stats['total_sessions']:>15,}")
+        console.print(f"  Days Tracked:        {db_stats['total_days']:>15,}")
+        console.print(f"  Date Range:          {db_stats['oldest_date']} to {db_stats['newest_date']}")
+
+        if db_stats['total_cost'] > 0:
+            start_date = datetime.strptime(db_stats['oldest_date'], "%Y-%m-%d")
+            end_date = datetime.strptime(db_stats['newest_date'], "%Y-%m-%d")
+            months_covered = set()
+            current = start_date
+            while current <= end_date:
+                months_covered.add((current.year, current.month))
+                if current.month == 12:
+                    current = current.replace(year=current.year + 1, month=1, day=1)
+                else:
+                    current = current.replace(month=current.month + 1, day=1)
+            num_months = len(months_covered)
+            plan_cost = num_months * 200.0
+            savings = db_stats['total_cost'] - plan_cost
+
+            console.print(f"\n[bold]Cost Analysis[/bold]")
+            console.print(f"  Est. Cost (if using API): ${db_stats['total_cost']:>10,.2f}")
+            console.print(f"  Plan Cost:           ${plan_cost:>14,.2f} ({num_months} month{'s' if num_months > 1 else ''} @ $200/mo)")
+            if savings > 0:
+                console.print(f"  You Saved:           ${savings:>14,.2f} (vs API)")
+            else:
+                console.print(f"  Plan Costs More:     ${abs(savings):>14,.2f}")
+
+        console.print(f"\n[bold]Averages[/bold]")
+        console.print(f"  Tokens per Session:  {db_stats['avg_tokens_per_session']:>15,}")
+        console.print(f"  Tokens per Response: {db_stats['avg_tokens_per_response']:>15,}")
+        if db_stats['total_cost'] > 0:
+            console.print(f"  Cost per Session:    ${db_stats['avg_cost_per_session']:>14,.2f}")
+            console.print(f"  Cost per Response:   ${db_stats['avg_cost_per_response']:>14,.4f}")
+
+        if db_stats["tokens_by_model"]:
+            console.print(f"\n[bold]Usage by Model[/bold]")
+            for model, tokens in db_stats["tokens_by_model"].items():
+                pct = (tokens / db_stats['total_tokens'] * 100) if db_stats['total_tokens'] > 0 else 0
+                cost = db_stats["cost_by_model"].get(model, 0.0)
+                if cost > 0:
+                    console.print(f"  {model:30s} {tokens:>15,} ({pct:5.1f}%) ${cost:>10,.2f}")
+                else:
+                    console.print(f"  {model:30s} {tokens:>15,} ({pct:5.1f}%)")
+
+        console.print(f"\n[dim]Source: remote (cross-device aggregate)[/dim]")
+
+    except ImportError:
+        console.print("[red]DuckDB not installed. Install with: uv pip install claude-goblin[duckdb][/red]")
+    except RuntimeError as e:
+        console.print(f"[red]Remote connection failed: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
 
 
 #endregion

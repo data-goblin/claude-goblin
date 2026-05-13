@@ -5,8 +5,6 @@ Interactive wizard for configuring storage format and sync provider.
 Supports non-interactive mode via CLI flags.
 """
 #region Imports
-import shutil
-import subprocess
 from typing import Optional
 
 import typer
@@ -37,18 +35,18 @@ STORAGE_OPTIONS = {
 }
 
 PROVIDER_OPTIONS = {
-    "syncthing": {
-        "name": "Syncthing",
-        "description": "Peer-to-peer folder sync, encrypted, no cloud",
+    "quack": {
+        "name": "Quack (DuckDB remote protocol)",
+        "description": "Push to a remote DuckDB server via Quack over Tailscale/WireGuard",
         "details": [
-            "Free, no account required",
-            "Data stays on your devices",
-            "Devices must be online together to sync",
+            "Requires DuckDB v1.5.2+ with quack extension on both ends",
+            "Server binds to Tailscale IP only (not public)",
+            "Token auth stored in macOS Keychain or env var",
         ],
-        "requires": None,
+        "requires": "DuckDB quack extension + Tailscale",
         "license": "Free",
         "recommended": True,
-        "storage_formats": ["sqlite", "duckdb"],
+        "storage_formats": ["duckdb"],
     },
     "onedrive": {
         "name": "OneDrive (local folder)",
@@ -99,19 +97,10 @@ PROVIDER_OPTIONS = {
     },
 }
 
-PACKAGE_MANAGERS = {
-    "brew": {"name": "Homebrew", "install_cmd": "brew install syncthing"},
-    "apt": {"name": "apt", "install_cmd": "sudo apt install syncthing"},
-    "dnf": {"name": "dnf", "install_cmd": "sudo dnf install syncthing"},
-    "pacman": {"name": "pacman", "install_cmd": "sudo pacman -S syncthing"},
-    "choco": {"name": "Chocolatey", "install_cmd": "choco install syncthing"},
-    "winget": {"name": "winget", "install_cmd": "winget install Syncthing.Syncthing"},
-}
-
 DOCS_LINKS = {
     "sqlite": "https://sqlite.org/docs.html",
     "duckdb": "https://duckdb.org/docs/",
-    "syncthing": "https://docs.syncthing.net/",
+    "quack": "https://duckdb.org/2026/05/12/quack-remote-protocol",
     "onedrive": "https://onedrive.com/",
     "onelake": "https://learn.microsoft.com/fabric",
     "motherduck": "https://motherduck.com/docs/",
@@ -120,93 +109,6 @@ DOCS_LINKS = {
 
 
 #region Helper Functions
-
-
-def detect_package_managers() -> dict[str, str]:
-    """
-    Detect available package managers on the system.
-
-    Returns:
-        Dict mapping manager name to install command
-    """
-    managers = {}
-    for pm, info in PACKAGE_MANAGERS.items():
-        if shutil.which(pm):
-            managers[pm] = info["install_cmd"]
-    return managers
-
-
-def check_syncthing_installed() -> bool:
-    """Check if syncthing CLI is available."""
-    return shutil.which("syncthing") is not None
-
-
-def get_syncthing_device_id() -> Optional[str]:
-    """
-    Get the Syncthing device ID.
-
-    Returns:
-        Device ID string or None if not available
-    """
-    if not check_syncthing_installed():
-        return None
-
-    try:
-        result = subprocess.run(
-            ["syncthing", "--device-id"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-    return None
-
-
-def install_syncthing(console: Console, package_manager: str) -> bool:
-    """
-    Install Syncthing using the specified package manager.
-
-    Args:
-        console: Rich console for output
-        package_manager: Package manager to use
-
-    Returns:
-        True if installation succeeded
-    """
-    if package_manager not in PACKAGE_MANAGERS:
-        return False
-
-    # Use pre-defined command lists to avoid command injection
-    # Each command is defined as a list of arguments, not a string to split
-    INSTALL_COMMANDS = {
-        "brew": ["brew", "install", "syncthing"],
-        "apt": ["sudo", "apt", "install", "-y", "syncthing"],
-        "dnf": ["sudo", "dnf", "install", "-y", "syncthing"],
-        "pacman": ["sudo", "pacman", "-S", "--noconfirm", "syncthing"],
-        "choco": ["choco", "install", "-y", "syncthing"],
-        "winget": ["winget", "install", "--accept-package-agreements", "Syncthing.Syncthing"],
-    }
-
-    if package_manager not in INSTALL_COMMANDS:
-        return False
-
-    cmd_list = INSTALL_COMMANDS[package_manager]
-    display_cmd = PACKAGE_MANAGERS[package_manager]["install_cmd"]
-    console.print(f"\n[dim]Running: {display_cmd}[/dim]\n")
-
-    try:
-        result = subprocess.run(
-            cmd_list,
-            capture_output=False,
-            timeout=300,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
 
 
 def display_storage_options(console: Console) -> None:
@@ -265,7 +167,7 @@ def display_epilog(console: Console) -> None:
     table.add_row("  DuckDB", DOCS_LINKS["duckdb"], "")
     table.add_row("", "", "")
     table.add_row("Sync Providers", "", "")
-    table.add_row("  Syncthing", DOCS_LINKS["syncthing"], "Free, no account")
+    table.add_row("  Quack", DOCS_LINKS["quack"], "Free, DuckDB remote protocol")
     table.add_row("  OneDrive", DOCS_LINKS["onedrive"], "Free 5GB / M365 1TB")
     table.add_row("  OneLake", DOCS_LINKS["onelake"], "Fabric license req.")
     table.add_row("  MotherDuck", DOCS_LINKS["motherduck"], "Free 10GB, account req.")
@@ -394,43 +296,6 @@ def setup_sync_command(
 
     console.print(f"[green]Selected provider:[/green] {PROVIDER_OPTIONS[selected_provider]['name']}")
 
-    # Handle Syncthing installation
-    if selected_provider == "syncthing":
-        if not check_syncthing_installed():
-            console.print("\n[yellow]Checking for Syncthing... not found[/yellow]")
-            console.print("\nTo install Syncthing:")
-            console.print("  [dim]macOS:   brew install syncthing[/dim]")
-            console.print("  [dim]Linux:   apt install syncthing (or see https://syncthing.net/downloads)[/dim]")
-            console.print("  [dim]Windows: choco install syncthing (or winget install Syncthing.Syncthing)[/dim]")
-
-            managers = detect_package_managers()
-            if managers:
-                if yes and install:
-                    # Auto-install with first available manager
-                    pm = list(managers.keys())[0]
-                    console.print(f"\n[dim]Auto-installing with {pm}...[/dim]")
-                    if not install_syncthing(console, pm):
-                        console.print("[red]Installation failed[/red]")
-                        raise typer.Exit(1)
-                elif not yes:
-                    if Confirm.ask("\nInstall now?", default=True):
-                        # Pick first available manager
-                        pm = list(managers.keys())[0]
-                        if not install_syncthing(console, pm):
-                            console.print("[red]Installation failed[/red]")
-                            raise typer.Exit(1)
-                    else:
-                        console.print("[yellow]Skipping installation. Please install Syncthing manually.[/yellow]")
-                else:
-                    console.print("[yellow]Use --install flag to auto-install dependencies[/yellow]")
-                    raise typer.Exit(1)
-            else:
-                console.print("[red]No supported package manager found. Please install Syncthing manually.[/red]")
-                if yes:
-                    raise typer.Exit(1)
-        else:
-            console.print("\n[green]Syncthing found[/green]")
-
     # Initialize device info with validation
     if device_id:
         # Sanitize user-provided device_id
@@ -451,12 +316,6 @@ def setup_sync_command(
             raise typer.Exit(1)
 
     final_device_id, final_device_name, final_device_type = user_config.initialize_device_info()
-
-    # If using Syncthing and it's installed, try to get Syncthing device ID
-    if selected_provider == "syncthing" and check_syncthing_installed():
-        syncthing_id = get_syncthing_device_id()
-        if syncthing_id:
-            console.print(f"\n[dim]Syncthing Device ID: {syncthing_id[:20]}...[/dim]")
 
     # Build provider-specific config
     sync_config: dict = {}
@@ -489,6 +348,37 @@ def setup_sync_command(
         sync_config = {
             "token": token,
         }
+
+    elif selected_provider == "quack":
+        # Quack-specific configuration
+        if not yes:
+            from rich.prompt import Prompt, Confirm
+            host = Prompt.ask("Remote host (Tailscale FQDN or IP)", default="your-quack-host.example.com")
+            port_str = Prompt.ask("Port", default="9494")
+            disable_ssl = Confirm.ask("Disable SSL? (yes if using Tailscale WireGuard)", default=True)
+            token_source = Prompt.ask("Token source", choices=["keychain", "env", "file"], default="keychain")
+        else:
+            host = workspace or ""  # reuse --workspace flag for host in non-interactive
+            port_str = "9494"
+            disable_ssl = True
+            token_source = "keychain"
+
+        sync_config = {
+            "host": host,
+            "port": int(port_str),
+            "disable_ssl": disable_ssl,
+            "token_source": token_source,
+        }
+
+        if token_source == "keychain":
+            sync_config["keychain_service"] = "DuckDB Quack Token"
+            sync_config["keychain_account"] = "duckdb-quack"
+        elif token_source == "file":
+            if not yes:
+                token_file = Prompt.ask("Token file path", default="~/.config/duckdb/quack.env")
+            else:
+                token_file = "~/.config/duckdb/quack.env"
+            sync_config["token_file"] = token_file
 
     elif selected_provider == "onedrive":
         if not onedrive_path:
