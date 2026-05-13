@@ -5,7 +5,7 @@ from pathlib import Path
 from rich.console import Console
 
 from src.config.user_config import get_storage_mode, set_storage_mode
-from src.storage.snapshot_db import DEFAULT_DB_PATH
+from src.storage import api
 #endregion
 
 
@@ -72,20 +72,19 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
             console.print("[yellow]• Historical aggregates will still be available[/yellow]")
 
         console.print("")
+        db_path = api.current_db_path()
+        backup_path = db_path.parent / f"{db_path.name}.bak"
         console.print("[bold cyan]Would you like to create a backup of your database?[/bold cyan]")
-        console.print(f"[dim]Database: {DEFAULT_DB_PATH}[/dim]")
-        console.print("[dim]Backup will be saved as: usage_history.db.bak[/dim]")
+        console.print(f"[dim]Database: {db_path}[/dim]")
+        console.print(f"[dim]Backup will be saved as: {backup_path.name}[/dim]")
         console.print("")
         console.print("[cyan]Create backup? (yes/no) [recommended: yes]:[/cyan] ", end="")
 
         try:
             backup_choice = input().strip().lower()
             if backup_choice in ["yes", "y"]:
-                # Create backup
-                backup_path = DEFAULT_DB_PATH.parent / "usage_history.db.bak"
-
-                if DEFAULT_DB_PATH.exists():
-                    shutil.copy2(DEFAULT_DB_PATH, backup_path)
+                if db_path.exists():
+                    shutil.copy2(db_path, backup_path)
                     console.print(f"[green]✓ Backup created: {backup_path}[/green]")
                     console.print(f"[dim]To restore: ccg restore usage[/dim]")
                 else:

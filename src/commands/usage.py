@@ -13,7 +13,8 @@ from src.config.settings import (
 )
 from src.config.user_config import get_storage_mode, get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
-from src.storage.snapshot_db import (
+from src.storage import api
+from src.storage.api import (
     get_database_stats,
     get_stale_files,
     load_historical_records,
@@ -136,10 +137,10 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
         anonymize: Anonymize project names to project-001, project-002, etc
         force: Force re-parse all files, ignoring incremental cache
     """
-    from src.storage.snapshot_db import get_latest_limits, DEFAULT_DB_PATH, get_database_stats
+    from src.storage.api import get_latest_limits, get_database_stats
 
     # Check if database exists when using --fast
-    if skip_limits and not DEFAULT_DB_PATH.exists():
+    if skip_limits and not api.current_db_path().exists():
         console.clear()
         console.print("[red]Error: Cannot use --fast flag without existing database.[/red]")
         console.print("[yellow]Run 'ccg usage' (without --fast) first to create the database.[/yellow]")

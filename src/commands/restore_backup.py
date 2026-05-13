@@ -5,10 +5,7 @@ from datetime import datetime
 
 from rich.console import Console
 
-from src.storage.snapshot_db import (
-    DEFAULT_DB_PATH,
-    get_database_stats,
-)
+from src.storage import api
 #endregion
 
 
@@ -25,7 +22,8 @@ def run(console: Console) -> None:
     Args:
         console: Rich console for output
     """
-    backup_path = DEFAULT_DB_PATH.parent / "usage_history.db.bak"
+    db_path = api.current_db_path()
+    backup_path = db_path.parent / f"{db_path.name}.bak"
 
     if not backup_path.exists():
         console.print("[yellow]No backup file found.[/yellow]")
@@ -34,7 +32,7 @@ def run(console: Console) -> None:
 
     console.print("[bold cyan]Restore Database from Backup[/bold cyan]\n")
     console.print(f"[yellow]Backup file: {backup_path}[/yellow]")
-    console.print(f"[yellow]This will replace: {DEFAULT_DB_PATH}[/yellow]")
+    console.print(f"[yellow]This will replace: {db_path}[/yellow]")
 
     # Show backup file info
     backup_size = os.path.getsize(backup_path)
@@ -45,7 +43,7 @@ def run(console: Console) -> None:
     console.print(f"[dim]Backup date: {backup_date}[/dim]")
     console.print("")
 
-    if DEFAULT_DB_PATH.exists():
+    if db_path.exists():
         console.print("[bold red]⚠️  WARNING: This will overwrite your current database![/bold red]")
         console.print("[yellow]Consider backing up your current database first.[/yellow]")
         console.print("")
@@ -63,18 +61,18 @@ def run(console: Console) -> None:
 
     try:
         # Create a backup of current DB if it exists
-        if DEFAULT_DB_PATH.exists():
-            current_backup = DEFAULT_DB_PATH.parent / "usage_history.db.before_restore"
-            shutil.copy2(DEFAULT_DB_PATH, current_backup)
+        if db_path.exists():
+            current_backup = db_path.parent / f"{db_path.name}.before_restore"
+            shutil.copy2(db_path, current_backup)
             console.print(f"[dim]Current database backed up to: {current_backup}[/dim]")
 
         # Restore from backup
-        shutil.copy2(backup_path, DEFAULT_DB_PATH)
+        shutil.copy2(backup_path, db_path)
         console.print(f"[green]✓ Database restored from backup[/green]")
-        console.print(f"[dim]Restored: {DEFAULT_DB_PATH}[/dim]")
+        console.print(f"[dim]Restored: {db_path}[/dim]")
 
         # Show restored stats
-        db_stats = get_database_stats()
+        db_stats = api.get_database_stats()
         if db_stats["total_records"] > 0:
             console.print("")
             console.print("[cyan]Restored database contains:[/cyan]")

@@ -9,10 +9,8 @@ from datetime import datetime
 import typer
 from rich.console import Console
 
-from src.storage.snapshot_db import (
-    DEFAULT_DB_PATH,
-    get_database_stats,
-)
+from src.storage import api
+from src.storage.api import get_database_stats
 
 
 def remove_usage_command(
@@ -40,7 +38,7 @@ def remove_usage_command(
         console.print("[yellow]To confirm deletion, use: ccg remove usage --force[/yellow]")
         return
 
-    db_path = DEFAULT_DB_PATH
+    db_path = api.current_db_path()
 
     if not db_path.exists():
         console.print("[yellow]No historical database found.[/yellow]")
@@ -56,8 +54,8 @@ def remove_usage_command(
             console.print(f"  Range: {db_stats['oldest_date']} to {db_stats['newest_date']}\n")
 
         # Create backup before deletion
-        backup_path = db_path.parent / f"usage_history.db.bak"
-        timestamp_backup = db_path.parent / f"usage_history.{datetime.now().strftime('%Y%m%d_%H%M%S')}.db.bak"
+        backup_path = db_path.parent / f"{db_path.name}.bak"
+        timestamp_backup = db_path.parent / f"{db_path.stem}.{datetime.now().strftime('%Y%m%d_%H%M%S')}{db_path.suffix}.bak"
 
         # Always keep the .bak file for restore command
         shutil.copy2(db_path, backup_path)

@@ -416,19 +416,13 @@ def export_heatmap_png(
     week_reset_info = None
     opus_reset_info = None
     if limits_data:
-        # Get the most recent limits snapshot to extract reset times
-        from src.storage.snapshot_db import DEFAULT_DB_PATH
-        import sqlite3
         try:
-            conn = sqlite3.connect(DEFAULT_DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute("SELECT week_reset, opus_reset FROM limits_snapshots ORDER BY timestamp DESC LIMIT 1")
-            result = cursor.fetchone()
-            if result:
-                week_reset_info = result[0]
-                opus_reset_info = result[1]
-            conn.close()
-        except:
+            from src.storage import api
+            latest = api.get_latest_limits()
+            if latest:
+                week_reset_info = latest.get("week_reset") or None
+                opus_reset_info = latest.get("opus_reset") or None
+        except Exception:
             pass
 
     # Draw heatmap sections based on tracking mode
