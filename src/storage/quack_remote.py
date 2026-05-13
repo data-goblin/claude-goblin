@@ -129,9 +129,15 @@ def connect_remote() -> "duckdb.DuckDBPyConnection":
 
 
 def init_remote_schema(conn: "duckdb.DuckDBPyConnection") -> None:
+    # Quack does not currently implement CREATE SEQUENCE over the wire, so we
+    # carry the local-source id through to the remote rather than autogenerating
+    # one server-side. UNIQUE(session_id, message_uuid) is the real dedupe key;
+    # the id column is just bookkeeping. Cross-device collisions on id are
+    # theoretically possible but require many millions of rows per device — fine
+    # for now.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS remote.usage_records (
-            id INTEGER PRIMARY KEY,
+            id BIGINT NOT NULL,
             date VARCHAR NOT NULL,
             timestamp VARCHAR NOT NULL,
             session_id VARCHAR NOT NULL,
@@ -152,7 +158,6 @@ def init_remote_schema(conn: "duckdb.DuckDBPyConnection") -> None:
             UNIQUE(session_id, message_uuid)
         )
     """)
-    conn.execute("CREATE SEQUENCE IF NOT EXISTS remote.usage_records_id_seq START 1")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS remote.daily_snapshots (
             date VARCHAR PRIMARY KEY,
@@ -214,23 +219,54 @@ def push_to_remote(local_db_path: Path) -> dict:
 
         before = conn.execute("SELECT COUNT(*) FROM remote.usage_records").fetchone()[0]
 
-        conn.execute("""
-            INSERT INTO remote.usage_records (
-                date, timestamp, session_id, message_uuid, message_type,
-                model, folder, git_branch, version,
-                input_tokens, output_tokens,
-                cache_creation_tokens, cache_read_tokens, total_tokens,
-                device_id, device_name, device_type
-            )
-            SELECT
-                date, timestamp, session_id, message_uuid, message_type,
-                model, folder, git_branch, version,
-                input_tokens, output_tokens,
-                cache_creation_tokens, cache_read_tokens, total_tokens,
-                device_id, device_name, device_type
-            FROM local_db.usage_records
-            ON CONFLICT (session_id, message_uuid) DO NOTHING
-        """)
+        # Quack lacks ON CONFLICT and rejects mixing streaming scans + INSERTs
+        # in the same query, so dedupe via a client-materialized key table.
+        # Empty remote => plain INSERT (no dedup needed).
+        if before == 0:
+            conn.execute("""
+                INSERT INTO remote.usage_records (
+                    id, date, timestamp, session_id, message_uuid, message_type,
+                    model, folder, git_branch, version,
+                    input_tokens, output_tokens,
+                    cache_creation_tokens, cache_read_tokens, total_tokens,
+                    device_id, device_name, device_type
+                )
+                SELECT
+                    id, date, timestamp, session_id, message_uuid, message_type,
+                    model, folder, git_branch, version,
+                    input_tokens, output_tokens,
+                    cache_creation_tokens, cache_read_tokens, total_tokens,
+                    device_id, device_name, device_type
+                FROM local_db.usage_records
+            """)
+        else:
+            # Pull existing (session_id, message_uuid) tuples to a client-side temp,
+            # then anti-join during INSERT. Only one streaming op per statement.
+            conn.execute("CREATE OR REPLACE TEMP TABLE existing_keys (session_id VARCHAR, message_uuid VARCHAR)")
+            keys = conn.execute("SELECT session_id, message_uuid FROM remote.usage_records").fetchall()
+            if keys:
+                conn.executemany("INSERT INTO existing_keys VALUES (?, ?)", keys)
+            conn.execute("""
+                INSERT INTO remote.usage_records (
+                    id, date, timestamp, session_id, message_uuid, message_type,
+                    model, folder, git_branch, version,
+                    input_tokens, output_tokens,
+                    cache_creation_tokens, cache_read_tokens, total_tokens,
+                    device_id, device_name, device_type
+                )
+                SELECT
+                    s.id, s.date, s.timestamp, s.session_id, s.message_uuid, s.message_type,
+                    s.model, s.folder, s.git_branch, s.version,
+                    s.input_tokens, s.output_tokens,
+                    s.cache_creation_tokens, s.cache_read_tokens, s.total_tokens,
+                    s.device_id, s.device_name, s.device_type
+                FROM local_db.usage_records s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM existing_keys k
+                    WHERE k.session_id = s.session_id AND k.message_uuid = s.message_uuid
+                )
+            """)
+            conn.execute("DROP TABLE existing_keys")
 
         after = conn.execute("SELECT COUNT(*) FROM remote.usage_records").fetchone()[0]
         new_records = after - before
@@ -238,31 +274,51 @@ def push_to_remote(local_db_path: Path) -> dict:
         # Rebuild snapshots only for dates in the pushed batch
         _rebuild_remote_snapshots(conn, local_conn_name="local_db")
 
-        # Push model_pricing
+        # Push model_pricing -- quack lacks both ON CONFLICT and DELETE, so the
+        # best we can do is anti-join INSERT new model_name rows. Updates to
+        # existing model_name prices are not propagated until quack adds
+        # DELETE/UPSERT. Acceptable: pricing changes rarely, and stats on local
+        # use local pricing.
         try:
-            conn.execute("""
-                INSERT INTO remote.model_pricing
-                SELECT * FROM local_db.model_pricing
-                ON CONFLICT (model_name) DO UPDATE SET
-                    input_price_per_mtok = excluded.input_price_per_mtok,
-                    output_price_per_mtok = excluded.output_price_per_mtok,
-                    cache_write_price_per_mtok = excluded.cache_write_price_per_mtok,
-                    cache_read_price_per_mtok = excluded.cache_read_price_per_mtok,
-                    last_updated = excluded.last_updated,
-                    notes = excluded.notes
-            """)
+            existing_models = [r[0] for r in conn.execute(
+                "SELECT model_name FROM remote.model_pricing"
+            ).fetchall()]
+            if existing_models:
+                conn.execute("CREATE OR REPLACE TEMP TABLE existing_models (model_name VARCHAR)")
+                conn.executemany("INSERT INTO existing_models VALUES (?)", [(m,) for m in existing_models])
+                conn.execute("""
+                    INSERT INTO remote.model_pricing
+                    SELECT s.* FROM local_db.model_pricing s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM existing_models e WHERE e.model_name = s.model_name
+                    )
+                """)
+                conn.execute("DROP TABLE existing_models")
+            else:
+                conn.execute("INSERT INTO remote.model_pricing SELECT * FROM local_db.model_pricing")
         except Exception:
             pass
 
-        # Push limits_snapshots
+        # Push limits_snapshots -- same anti-join pattern via client temp table
         try:
             local_limits = conn.execute("SELECT COUNT(*) FROM local_db.limits_snapshots").fetchone()[0]
             if local_limits > 0:
-                conn.execute("""
-                    INSERT INTO remote.limits_snapshots
-                    SELECT * FROM local_db.limits_snapshots
-                    ON CONFLICT (timestamp) DO NOTHING
-                """)
+                existing_ts = [r[0] for r in conn.execute(
+                    "SELECT timestamp FROM remote.limits_snapshots"
+                ).fetchall()]
+                if existing_ts:
+                    conn.execute("CREATE OR REPLACE TEMP TABLE existing_limits_ts (timestamp VARCHAR)")
+                    conn.executemany("INSERT INTO existing_limits_ts VALUES (?)", [(t,) for t in existing_ts])
+                    conn.execute("""
+                        INSERT INTO remote.limits_snapshots
+                        SELECT s.* FROM local_db.limits_snapshots s
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM existing_limits_ts e WHERE e.timestamp = s.timestamp
+                        )
+                    """)
+                    conn.execute("DROP TABLE existing_limits_ts")
+                else:
+                    conn.execute("INSERT INTO remote.limits_snapshots SELECT * FROM local_db.limits_snapshots")
         except Exception:
             pass
 
@@ -281,35 +337,13 @@ def push_to_remote(local_db_path: Path) -> dict:
 
 
 def _rebuild_remote_snapshots(conn: "duckdb.DuckDBPyConnection", local_conn_name: str = "local_db") -> None:
-    timestamp = datetime.now().isoformat()
-    conn.execute(f"""
-        INSERT INTO remote.daily_snapshots
-        SELECT
-            date,
-            SUM(CASE WHEN message_type = 'user' THEN 1 ELSE 0 END),
-            SUM(CASE WHEN message_type = 'assistant' THEN 1 ELSE 0 END),
-            COUNT(DISTINCT session_id),
-            SUM(total_tokens),
-            SUM(input_tokens),
-            SUM(output_tokens),
-            SUM(cache_creation_tokens),
-            SUM(cache_read_tokens),
-            ?,
-            NULL, NULL, NULL
-        FROM remote.usage_records
-        WHERE date IN (SELECT DISTINCT date FROM {local_conn_name}.usage_records)
-        GROUP BY date
-        ON CONFLICT (date) DO UPDATE SET
-            total_prompts = excluded.total_prompts,
-            total_responses = excluded.total_responses,
-            total_sessions = excluded.total_sessions,
-            total_tokens = excluded.total_tokens,
-            input_tokens = excluded.input_tokens,
-            output_tokens = excluded.output_tokens,
-            cache_creation_tokens = excluded.cache_creation_tokens,
-            cache_read_tokens = excluded.cache_read_tokens,
-            snapshot_timestamp = excluded.snapshot_timestamp
-    """, [timestamp])
+    # Quack does not implement DELETE on attached tables ("Can only delete from
+    # base table") and does not implement ON CONFLICT, so daily snapshots on the
+    # remote cannot be upserted in place. Skip the rebuild here -- the
+    # read-side aggregator (get_database_stats) computes the same totals
+    # directly from remote.usage_records, so this table stays unused on remote
+    # until quack adds DELETE/UPSERT support.
+    return
 
 
 #endregion
@@ -389,14 +423,19 @@ def get_database_stats() -> dict:
         date_range = conn.execute("SELECT MIN(date), MAX(date) FROM remote.usage_records").fetchone()
         oldest_date, newest_date = date_range
 
+        # Aggregate directly from usage_records -- remote daily_snapshots is
+        # left empty because quack lacks DELETE/ON CONFLICT for upserts.
         newest_timestamp = conn.execute(
-            "SELECT MAX(snapshot_timestamp) FROM remote.daily_snapshots"
+            "SELECT MAX(timestamp) FROM remote.usage_records"
         ).fetchone()[0]
 
         agg = conn.execute("""
-            SELECT SUM(total_tokens), SUM(total_prompts),
-                   SUM(total_responses), SUM(total_sessions)
-            FROM remote.daily_snapshots
+            SELECT
+                SUM(total_tokens),
+                SUM(CASE WHEN message_type = 'user' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN message_type = 'assistant' THEN 1 ELSE 0 END),
+                COUNT(DISTINCT session_id)
+            FROM remote.usage_records
         """).fetchone()
         total_tokens = agg[0] or 0
         total_prompts = agg[1] or 0
