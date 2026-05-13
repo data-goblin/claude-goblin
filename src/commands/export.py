@@ -10,13 +10,13 @@ from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
 from src.config.user_config import get_tracking_mode, get_storage_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
-from src.storage.snapshot_db import (
+from src.storage import api
+from src.storage.api import (
     load_historical_records,
     get_limits_data,
     save_limits_snapshot,
     save_snapshot,
     get_database_stats,
-    DEFAULT_DB_PATH,
 )
 from src.utils._system import open_file
 #endregion
@@ -110,7 +110,7 @@ def run(console: Console) -> None:
 
     try:
         # Check if database exists when using --fast
-        if fast_mode and not DEFAULT_DB_PATH.exists():
+        if fast_mode and not api.current_db_path().exists():
             console.print("[red]Error: Cannot use --fast flag without existing database.[/red]")
             console.print("[yellow]Run 'ccg usage' or 'ccg update usage' first to create the database.[/yellow]")
             return

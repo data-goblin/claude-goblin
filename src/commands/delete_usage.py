@@ -3,10 +3,8 @@ import sys
 
 from rich.console import Console
 
-from src.storage.snapshot_db import (
-    DEFAULT_DB_PATH,
-    get_database_stats,
-)
+from src.storage import api
+from src.storage.api import get_database_stats
 #endregion
 
 
@@ -31,7 +29,7 @@ def run(console: Console) -> None:
         console.print("[yellow]To confirm deletion, use: ccg remove usage --force[/yellow]")
         return
 
-    db_path = DEFAULT_DB_PATH
+    db_path = api.current_db_path()
 
     if not db_path.exists():
         console.print("[yellow]No historical database found.[/yellow]")

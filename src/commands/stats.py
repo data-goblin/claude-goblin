@@ -8,8 +8,8 @@ from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
 from src.config.user_config import get_storage_mode, get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
-from src.storage.snapshot_db import (
-    DEFAULT_DB_PATH,
+from src.storage import api
+from src.storage.api import (
     get_database_stats,
     get_stale_files,
     get_text_analysis_stats,
@@ -45,7 +45,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
     force_mode = force or "--force" in sys.argv
 
     # Check if database exists when using --fast
-    if fast_mode and not DEFAULT_DB_PATH.exists():
+    if fast_mode and not api.current_db_path().exists():
         console.print("[red]Error: Cannot use --fast flag without existing database.[/red]")
         console.print("[yellow]Run 'ccg stats' (without --fast) first to create the database.[/yellow]")
         return
@@ -194,7 +194,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
                 console.print(f"  {model:30s} {tokens:>15,} ({percentage:5.1f}%)")
 
     # Database Info
-    console.print(f"\n[dim]Database: ~/.claude/usage/usage_history.db[/dim]")
+    console.print(f"\n[dim]Database: {api.current_db_path()}[/dim]")
     if db_stats["total_records"] > 0:
         console.print(f"[dim]Detail records: {db_stats['total_records']:,} (full analytics mode)[/dim]")
     else:
