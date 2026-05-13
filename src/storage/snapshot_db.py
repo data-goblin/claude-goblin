@@ -1244,4 +1244,47 @@ def get_file_metadata_count(db_path: Path = DEFAULT_DB_PATH) -> int:
         return 0
     finally:
         conn.close()
+
+
+def fill_empty_daily_snapshots(
+    start_date: str,
+    end_date: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """
+    Insert zero-usage daily_snapshots rows for any date in [start_date, end_date]
+    that does not already have a row. Returns the number of rows inserted.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    init_database(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT date FROM daily_snapshots")
+        existing = {row[0] for row in cursor.fetchall()}
+
+        current = _dt.strptime(start_date, "%Y-%m-%d").date()
+        last = _dt.strptime(end_date, "%Y-%m-%d").date()
+        timestamp = _dt.now().isoformat()
+        inserted = 0
+        while current <= last:
+            date_str = current.strftime("%Y-%m-%d")
+            if date_str not in existing:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO daily_snapshots (
+                        date, total_prompts, total_responses, total_sessions, total_tokens,
+                        input_tokens, output_tokens, cache_creation_tokens,
+                        cache_read_tokens, snapshot_timestamp
+                    ) VALUES (?, 0, 0, 0, 0, 0, 0, 0, 0, ?)
+                    """,
+                    (date_str, timestamp),
+                )
+                inserted += 1
+            current += _td(days=1)
+        conn.commit()
+        return inserted
+    finally:
+        conn.close()
 #endregion
