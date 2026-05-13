@@ -540,6 +540,10 @@ def load_historical_records(
     """
     Load historical usage records from the database.
 
+    Supports both storage modes:
+    - Full mode: Loads individual records from usage_records table
+    - Aggregate mode: Loads daily summaries from daily_snapshots and converts to synthetic records
+
     Args:
         start_date: Optional start date in YYYY-MM-DD format (inclusive)
         end_date: Optional end date in YYYY-MM-DD format (inclusive)
@@ -559,6 +563,7 @@ def load_historical_records(
     try:
         cursor = conn.cursor()
 
+        # First try to load from usage_records (full mode)
         query = "SELECT * FROM usage_records WHERE 1=1"
         params = []
 
@@ -605,9 +610,76 @@ def load_historical_records(
             )
             records.append(record)
 
+        # If no records from usage_records, try daily_snapshots (aggregate mode)
+        if not records:
+            records = _load_from_daily_snapshots(cursor, start_date, end_date)
+
         return records
     finally:
         conn.close()
+
+
+def _load_from_daily_snapshots(
+    cursor: sqlite3.Cursor,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> list[UsageRecord]:
+    """
+    Load records from daily_snapshots table and convert to synthetic UsageRecord objects.
+
+    Used when storage mode is 'aggregate' and usage_records is empty.
+
+    Args:
+        cursor: SQLite cursor
+        start_date: Optional start date filter
+        end_date: Optional end date filter
+
+    Returns:
+        List of synthetic UsageRecord objects (one per day)
+    """
+    from src.models.usage_record import TokenUsage
+
+    query = "SELECT date, total_tokens, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, total_sessions FROM daily_snapshots WHERE 1=1"
+    params = []
+
+    if start_date:
+        query += " AND date >= ?"
+        params.append(start_date)
+
+    if end_date:
+        query += " AND date <= ?"
+        params.append(end_date)
+
+    query += " ORDER BY date"
+
+    cursor.execute(query, params)
+
+    records = []
+    for row in cursor.fetchall():
+        date_str, total_tokens, input_tokens, output_tokens, cache_creation, cache_read, sessions = row
+
+        # Create a synthetic UsageRecord for each day
+        token_usage = TokenUsage(
+            input_tokens=input_tokens or 0,
+            output_tokens=output_tokens or 0,
+            cache_creation_tokens=cache_creation or 0,
+            cache_read_tokens=cache_read or 0,
+        )
+
+        record = UsageRecord(
+            timestamp=datetime.fromisoformat(f"{date_str}T12:00:00"),
+            session_id=f"daily-{date_str}",
+            message_uuid=f"aggregate-{date_str}",
+            message_type="assistant",
+            model="aggregate",
+            folder="aggregate",
+            git_branch=None,
+            version=None,
+            token_usage=token_usage,
+        )
+        records.append(record)
+
+    return records
 
 
 def get_text_analysis_stats(db_path: Path = DEFAULT_DB_PATH) -> dict:
