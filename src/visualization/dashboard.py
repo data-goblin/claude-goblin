@@ -1,466 +1,476 @@
 #region Imports
 from collections import defaultdict
-from datetime import datetime, timedelta
-from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Optional
+from datetime import datetime
 
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.columns import Columns
+from rich.layout import Layout
+from rich.progress import Progress, BarColumn, TextColumn
+from rich.spinner import Spinner
 
 from src.aggregation.daily_stats import AggregatedStats
 from src.models.usage_record import UsageRecord
+from src.storage.snapshot_db import get_limits_data
 #endregion
 
 
 #region Constants
-# ═══════════════════════════════════════════════════════════════════════════════
-# AESTHETIC: "Warm Data Observatory"
-# A terminal dashboard that feels like a cozy mission control center.
-# Warm orange gradients, clean box-drawing, personality through stats.
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Color Palette - Warm orange spectrum with cool accents
-AMBER_GLOW = "#ffaa00"      # Primary accent - warm amber
-EMBER = "#ff6600"           # Hot accent - for emphasis
-SUNSET = "#cc5500"          # Mid-tone orange
-CLAY = "#994400"            # Darker orange
-RUST = "#663300"            # Darkest orange
-SAGE = "#88aa77"            # Cool complement - for secondary data
-SLATE = "#667788"           # Cool neutral
-CHARCOAL = "#333340"        # Dark background tone
-DIM = "#555566"             # Muted text
-GHOST = "#444455"           # Very muted
-
-# Bar characters - smooth gradient
-BAR_CHARS = "▏▎▍▌▋▊▉█"
-
-# Heatmap intensity - geometric progression for visual pop
-HEAT_EMPTY = "·"
-HEAT_LEVELS = ["░", "▒", "▓", "█"]
-HEAT_COLORS = ["#442200", "#774400", "#aa6600", AMBER_GLOW]
-
-# Box drawing for panels
-BOX_H = "─"
-BOX_V = "│"
-BOX_TL = "╭"
-BOX_TR = "╮"
-BOX_BL = "╰"
-BOX_BR = "╯"
+# Claude-inspired color scheme
+ORANGE = "#ff8800"
+CYAN = "cyan"
+DIM = "grey50"
+BAR_WIDTH = 20
 #endregion
 
 
-#region Helper Functions
-def _parse_path_parts(path_str: str) -> list[str]:
-    """Parse path into parts, handling both Unix and Windows separators.
+#region Functions
 
-    Paths from Claude Code JSONL files may contain either / or \\ depending
-    on the platform where the data was generated.
+
+def _format_number(num: int) -> str:
     """
-    # Try to detect path type by looking for Windows drive letters or backslashes
-    if "\\" in path_str or (len(path_str) > 1 and path_str[1] == ":"):
-        return list(PureWindowsPath(path_str).parts)
-    else:
-        return list(PurePosixPath(path_str).parts)
+    Format number with thousands separator and appropriate suffix.
 
+    Args:
+        num: Number to format
 
-def _shorten_path(path_str: str, max_parts: int = 2) -> str:
-    """Shorten a path to show only the last N parts, cross-platform."""
-    parts = _parse_path_parts(path_str)
-    if len(parts) > max_parts:
-        return "…/" + "/".join(parts[-max_parts:])
-    return path_str
-
-
-def _fmt(num: int) -> str:
-    """Format number with K/M/B suffix."""
+    Returns:
+        Formatted string (e.g., "1.4bn", "523.7M", "45.2K", "1.234")
+    """
     if num >= 1_000_000_000:
-        return f"{num / 1_000_000_000:.1f}B"
+        return f"{num / 1_000_000_000:.1f}bn".replace(".", ".")
     elif num >= 1_000_000:
-        return f"{num / 1_000_000:.1f}M"
+        return f"{num / 1_000_000:.1f}M".replace(".", ".")
     elif num >= 1_000:
-        return f"{num / 1_000:.1f}K"
-    return str(num)
+        return f"{num / 1_000:.1f}K".replace(".", ".")
+    else:
+        # Add thousands separator for numbers < 1000
+        return f"{num:,}".replace(",", ".")
 
 
-def _gradient_bar(value: int, max_value: int, width: int = 20) -> Text:
-    """Create a smooth gradient bar using block characters."""
-    # Guard against invalid width
-    if width <= 0:
-        return Text()
+def _create_bar(value: int, max_value: int, width: int = BAR_WIDTH, color: str = ORANGE) -> Text:
+    """
+    Create a simple text bar for visualization.
+
+    Args:
+        value: Current value
+        max_value: Maximum value for scaling
+        width: Width of bar in characters
+        color: Color for the filled portion of the bar
+
+    Returns:
+        Rich Text object with colored bar
+    """
     if max_value == 0:
-        return Text("·" * width, style=GHOST)
+        return Text("░" * width, style=DIM)
 
-    ratio = min(1.0, value / max_value)
-    filled_width = ratio * width
-    full_blocks = int(filled_width)
-    partial = filled_width - full_blocks
-
+    filled = int((value / max_value) * width)
     bar = Text()
-
-    # Full blocks with gradient color based on position
-    for i in range(full_blocks):
-        pos_ratio = i / width  # Safe: width > 0 guaranteed above
-        if pos_ratio < 0.3:
-            color = RUST
-        elif pos_ratio < 0.6:
-            color = SUNSET
-        elif pos_ratio < 0.85:
-            color = EMBER
-        else:
-            color = AMBER_GLOW
-        bar.append("█", style=color)
-
-    # Partial block
-    if partial > 0 and full_blocks < width:
-        char_idx = max(0, min(int(partial * len(BAR_CHARS)), len(BAR_CHARS) - 1))
-        bar.append(BAR_CHARS[char_idx], style=SUNSET)
-        full_blocks += 1
-
-    # Empty space
-    remaining = width - full_blocks
-    if remaining > 0:
-        bar.append("·" * remaining, style=GHOST)
-
+    bar.append("█" * filled, style=color)
+    bar.append("░" * (width - filled), style=DIM)
     return bar
 
 
-def _duration_str(seconds: float) -> str:
-    """Format duration in human-readable form."""
-    if seconds >= 86400:
-        d = int(seconds // 86400)
-        h = int((seconds % 86400) // 3600)
-        return f"{d}d {h}h"
-    elif seconds >= 3600:
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        return f"{h}h {m}m"
-    else:
-        m = int(seconds // 60)
-        return f"{m}m"
-#endregion
-
-
-#region Dashboard Components
-def _create_header(stats: AggregatedStats, records: list[UsageRecord]) -> Text:
-    """Create a distinctive header with key stats."""
-    header = Text()
-
-    # Title with warm glow
-    header.append("  ◆ ", style=EMBER)
-    header.append("CLAUDE USAGE", style=f"bold {AMBER_GLOW}")
-    header.append(" ◆\n\n", style=EMBER)
-
-    # Key metrics in a horizontal layout
-    total = stats.overall_totals
-
-    header.append("    ", style=DIM)
-    header.append(_fmt(total.total_tokens), style=f"bold {AMBER_GLOW}")
-    header.append(" tokens", style=DIM)
-    header.append("  │  ", style=GHOST)
-    header.append(str(total.total_prompts), style="bold white")
-    header.append(" prompts", style=DIM)
-    header.append("  │  ", style=GHOST)
-    header.append(str(total.total_sessions), style="bold white")
-    header.append(" sessions\n", style=DIM)
-
-    return header
-
-
-def _create_heatmap(records: list[UsageRecord]) -> Panel:
+def render_dashboard(stats: AggregatedStats, records: list[UsageRecord], console: Console, skip_limits: bool = False, clear_screen: bool = True, date_range: str = None, limits_from_db: dict | None = None, fast_mode: bool = False) -> None:
     """
-    Create a GitHub-style activity heatmap with personality.
-    The visual centerpiece of the dashboard.
+    Render a concise, modern dashboard with KPI cards and breakdowns.
+
+    Args:
+        stats: Aggregated statistics
+        records: Raw usage records for detailed breakdowns
+        console: Rich console for rendering
+        skip_limits: If True, skip fetching current limits for faster display
+        clear_screen: If True, clear the screen before rendering (default True)
+        date_range: Optional date range string to display in footer
+        limits_from_db: Pre-fetched limits from database (avoids live fetch)
+        fast_mode: If True, show warning that data is from last update
     """
-    if not records:
-        return Panel(
-            Text("No activity data yet", style=DIM),
-            title="[bold]Activity",
-            border_style=GHOST,
+    if clear_screen:
+        console.clear()
+
+    # Use simple text layout for narrow terminals (< 90 cols)
+    if console.width < 90:
+        _render_simple_dashboard(stats, records, console, date_range, fast_mode)
+        return
+
+    # Create KPI cards with limits (shows spinner if loading limits)
+    kpi_section = _create_kpi_section(stats.overall_totals, skip_limits=skip_limits, console=console, limits_from_db=limits_from_db)
+
+    # Create breakdowns
+    model_breakdown = _create_model_breakdown(records)
+    project_breakdown = _create_project_breakdown(records)
+
+    # Create footer with export info and date range
+    footer = _create_footer(date_range, fast_mode=fast_mode)
+
+    # Render all components
+    console.print(kpi_section, end="")
+    console.print()  # Blank line between sections
+    console.print(model_breakdown, end="")
+    console.print()  # Blank line between sections
+    console.print(project_breakdown, end="")
+    console.print()  # Blank line before footer
+    console.print(footer)
+
+
+def _render_simple_dashboard(stats: AggregatedStats, records: list[UsageRecord], console: Console, date_range: str = None, fast_mode: bool = False) -> None:
+    """
+    Render a simple text-based dashboard for narrow terminals.
+
+    Args:
+        stats: Aggregated statistics
+        records: Raw usage records
+        console: Rich console
+        date_range: Optional date range
+        fast_mode: If True, show fast mode warning
+    """
+    overall = stats.overall_totals
+
+    # Header
+    console.print(f"\n[bold {ORANGE}]CLAUDE USAGE[/bold {ORANGE}]\n")
+
+    # KPIs as simple lines
+    console.print(f"  Tokens:   [bold {ORANGE}]{_format_number(overall.total_tokens)}[/bold {ORANGE}]")
+    console.print(f"  Prompts:  [bold white]{_format_number(overall.total_prompts)}[/bold white]")
+    console.print(f"  Sessions: [bold white]{_format_number(overall.total_sessions)}[/bold white]")
+    console.print()
+
+    # Model breakdown
+    model_tokens: dict[str, int] = {}
+    for record in records:
+        if record.model and record.token_usage and record.model != "<synthetic>":
+            model_tokens[record.model] = model_tokens.get(record.model, 0) + record.token_usage.total_tokens
+
+    if model_tokens:
+        console.print(f"[bold]Models:[/bold]")
+        total = sum(model_tokens.values())
+        for model, tokens in sorted(model_tokens.items(), key=lambda x: x[1], reverse=True)[:5]:
+            name = model.replace("claude-", "")
+            pct = (tokens / total * 100) if total > 0 else 0
+            console.print(f"  {name[:25]:<25} [{ORANGE}]{_format_number(tokens):>8}[/{ORANGE}] [{CYAN}]{pct:5.1f}%[/{CYAN}]")
+        console.print()
+
+    # Project breakdown
+    folder_tokens: dict[str, int] = {}
+    for record in records:
+        if record.token_usage:
+            folder_tokens[record.folder] = folder_tokens.get(record.folder, 0) + record.token_usage.total_tokens
+
+    if folder_tokens:
+        console.print(f"[bold]Projects:[/bold]")
+        total = sum(folder_tokens.values())
+        for folder, tokens in sorted(folder_tokens.items(), key=lambda x: x[1], reverse=True)[:5]:
+            parts = folder.split("/")
+            name = "/".join(parts[-2:]) if len(parts) > 2 else folder
+            name = name[:25]
+            pct = (tokens / total * 100) if total > 0 else 0
+            console.print(f"  {name:<25} [{ORANGE}]{_format_number(tokens):>8}[/{ORANGE}] [{CYAN}]{pct:5.1f}%[/{CYAN}]")
+        console.print()
+
+    # Footer
+    if fast_mode:
+        console.print(f"[bold red]Fast mode: data from cache[/bold red]")
+    if date_range:
+        console.print(f"[{DIM}]Data: {date_range}[/{DIM}]")
+    console.print(f"[{DIM}]Tip: ccg export --open for heatmap[/{DIM}]")
+
+
+def _create_kpi_section(overall, skip_limits: bool = False, console: Console = None, limits_from_db: dict | None = None) -> Group:
+    """
+    Create KPI cards with individual limit boxes beneath each.
+
+    Args:
+        overall: Overall statistics
+        skip_limits: If True, skip fetching current limits (faster)
+        console: Console instance for showing spinner
+        limits_from_db: Pre-fetched limits from database (avoids live fetch)
+
+    Returns:
+        Group containing KPI cards and limit boxes
+    """
+    # Use limits from DB if provided, otherwise fetch live (unless skipped)
+    limits = limits_from_db
+    if limits is None and not skip_limits:
+        from src.commands.limits import capture_limits
+        if console:
+            with console.status(f"[bold {ORANGE}]Loading usage limits...", spinner="dots", spinner_style=ORANGE):
+                limits = capture_limits()
+        else:
+            limits = capture_limits()
+
+    # Create KPI cards
+    kpi_grid = Table.grid(padding=(0, 2), expand=False)
+    kpi_grid.add_column(justify="center")
+    kpi_grid.add_column(justify="center")
+    kpi_grid.add_column(justify="center")
+
+    # Total Tokens card
+    tokens_card = Panel(
+        Text(_format_number(overall.total_tokens), style=f"bold {ORANGE}"),
+        title="Total Tokens",
+        border_style="white",
+        width=28,
+    )
+
+    # Total Prompts card
+    prompts_card = Panel(
+        Text(_format_number(overall.total_prompts), style="bold white"),
+        title="Prompts Sent",
+        border_style="white",
+        width=28,
+    )
+
+    # Total Sessions card
+    sessions_card = Panel(
+        Text(_format_number(overall.total_sessions), style="bold white"),
+        title="Active Sessions",
+        border_style="white",
+        width=28,
+    )
+
+    kpi_grid.add_row(tokens_card, prompts_card, sessions_card)
+
+    # Create individual limit boxes if available
+    if limits and "error" not in limits:
+        limit_grid = Table.grid(padding=(0, 2), expand=False)
+        limit_grid.add_column(justify="center")
+        limit_grid.add_column(justify="center")
+        limit_grid.add_column(justify="center")
+
+        # Remove timezone info from reset dates
+        session_reset = limits['session_reset'].split(' (')[0] if '(' in limits['session_reset'] else limits['session_reset']
+        week_reset = limits['week_reset'].split(' (')[0] if '(' in limits['week_reset'] else limits['week_reset']
+        opus_reset = limits['opus_reset'].split(' (')[0] if '(' in limits['opus_reset'] else limits['opus_reset']
+
+        # Session limit box
+        session_bar = _create_bar(limits["session_pct"], 100, width=16, color="red")
+        session_content = Text()
+        session_content.append(f"{limits['session_pct']}% ", style="bold red")
+        session_content.append(session_bar)
+        session_content.append(f"\nResets: {session_reset}", style="white")
+        session_box = Panel(
+            session_content,
+            title="[red]Session Limit",
+            border_style="white",
+            width=28,
         )
 
-    # Aggregate data
-    daily_tokens: dict[str, int] = defaultdict(int)
-    daily_sessions: dict[str, set] = defaultdict(set)
-    model_tokens: dict[str, int] = defaultdict(int)
-    hourly_activity: dict[int, int] = defaultdict(int)
+        # Week limit box
+        week_bar = _create_bar(limits["week_pct"], 100, width=16, color="red")
+        week_content = Text()
+        week_content.append(f"{limits['week_pct']}% ", style="bold red")
+        week_content.append(week_bar)
+        week_content.append(f"\nResets: {week_reset}", style="white")
+        week_box = Panel(
+            week_content,
+            title="[red]Weekly Limit",
+            border_style="white",
+            width=28,
+        )
 
-    for record in records:
-        date_key = record.date_key
-        if record.token_usage:
-            daily_tokens[date_key] += record.token_usage.total_tokens
-            if record.model:
-                model_tokens[record.model] += record.token_usage.total_tokens
-        daily_sessions[date_key].add(record.session_id)
-        hourly_activity[record.timestamp.hour] += 1
+        # Opus limit box
+        opus_bar = _create_bar(limits["opus_pct"], 100, width=16, color="red")
+        opus_content = Text()
+        opus_content.append(f"{limits['opus_pct']}% ", style="bold red")
+        opus_content.append(opus_bar)
+        opus_content.append(f"\nResets: {opus_reset}", style="white")
+        opus_box = Panel(
+            opus_content,
+            title="[red]Opus Limit",
+            border_style="white",
+            width=28,
+        )
 
-    if not daily_tokens:
-        return Panel(Text("No token data", style=DIM), border_style=GHOST)
+        limit_grid.add_row(session_box, week_box, opus_box)
 
-    today = datetime.now().date()
-    sorted_dates = sorted(daily_tokens.keys())
-    oldest_date = datetime.strptime(sorted_dates[0], "%Y-%m-%d").date()
-    days_of_data = (today - oldest_date).days + 1
-    max_tokens = max(daily_tokens.values())
+        # Add spacing between KPI cards and limits with a simple newline
+        spacing = Text("\n")
+        return Group(kpi_grid, spacing, limit_grid)
+    else:
+        return Group(kpi_grid)
 
-    # Build weeks (show ~20 weeks for compact view)
-    num_weeks = min(20, (days_of_data // 7) + 2)
-    start_date = today - timedelta(days=num_weeks * 7)
-    start_date -= timedelta(days=(start_date.weekday() + 1) % 7)  # Start on Sunday
 
-    weeks: list[list[tuple[str, int]]] = []
-    current_week: list[tuple[str, int]] = []
-    current_date = start_date
+def _create_kpi_cards(overall) -> Table:
+    """
+    Create 3 KPI cards showing key metrics.
 
-    while current_date <= today:
-        date_key = current_date.strftime("%Y-%m-%d")
-        tokens = daily_tokens.get(date_key, 0)
-        current_week.append((date_key, tokens))
-        if len(current_week) == 7:
-            weeks.append(current_week)
-            current_week = []
-        current_date += timedelta(days=1)
-    if current_week:
-        weeks.append(current_week)
+    Args:
+        overall: Overall statistics
 
-    # Build heatmap text
-    content = Text()
+    Returns:
+        Table grid with KPI cards
+    """
+    grid = Table.grid(padding=(0, 2), expand=False)
+    grid.add_column(justify="center")
+    grid.add_column(justify="center")
+    grid.add_column(justify="center")
 
-    # Month labels
-    content.append("       ", style=DIM)
-    prev_month = None
-    for week in weeks:
-        if week:
-            dt = datetime.strptime(week[0][0], "%Y-%m-%d")
-            month = dt.strftime("%b")
-            if month != prev_month:
-                content.append(f"{month[:3]:<4}", style=DIM)
-                prev_month = month
-            else:
-                content.append("    ", style=DIM)
-    content.append("\n")
+    # Total Tokens card
+    tokens_card = Panel(
+        Text.assemble(
+            (_format_number(overall.total_tokens), f"bold {ORANGE}"),
+            "\n",
+            ("Total Tokens", DIM),
+        ),
+        border_style="white",
+        width=28,
+    )
 
-    # Day rows
-    day_labels = ["", "Mon", "", "Wed", "", "Fri", ""]
-    for day_idx in range(7):
-        content.append(f"  {day_labels[day_idx]:>3} ", style=DIM)
-        for week in weeks:
-            if day_idx < len(week):
-                date_key, tokens = week[day_idx]
-                dt = datetime.strptime(date_key, "%Y-%m-%d").date()
+    # Total Prompts card
+    prompts_card = Panel(
+        Text.assemble(
+            (_format_number(overall.total_prompts), f"bold {ORANGE}"),
+            "\n",
+            ("Prompts Sent", DIM),
+        ),
+        border_style="white",
+        width=28,
+    )
 
-                if dt > today:
-                    content.append(" ", style=DIM)
-                elif tokens == 0:
-                    content.append(HEAT_EMPTY, style=GHOST)
-                else:
-                    ratio = (tokens / max_tokens) ** 0.5  # sqrt scaling
-                    level = min(3, int(ratio * 4))
-                    content.append(HEAT_LEVELS[level], style=HEAT_COLORS[level])
-            else:
-                content.append(" ")
-        content.append("\n")
+    # Total Sessions card
+    sessions_card = Panel(
+        Text.assemble(
+            (_format_number(overall.total_sessions), f"bold {ORANGE}"),
+            "\n",
+            ("Active Sessions", DIM),
+        ),
+        border_style="white",
+        width=28,
+    )
 
-    # Legend
-    content.append("\n       Less ", style=DIM)
-    content.append(HEAT_EMPTY + " ", style=GHOST)
-    for i, char in enumerate(HEAT_LEVELS):
-        content.append(char + " ", style=HEAT_COLORS[i])
-    content.append("More\n", style=DIM)
+    grid.add_row(tokens_card, prompts_card, sessions_card)
+    return grid
 
-    # Fun stats section
-    content.append("\n")
 
-    # Calculate stats
-    total_tokens = sum(daily_tokens.values())
-    total_sessions = sum(len(s) for s in daily_sessions.values())
-    active_days = len([d for d in daily_tokens.values() if d > 0])
+def _create_limits_bars() -> Panel | None:
+    """
+    Create progress bars showing current usage limits.
 
-    # Favorite model
-    fav_model = "Unknown"
-    if model_tokens:
-        fav_model = max(model_tokens.items(), key=lambda x: x[1])[0]
-        fav_model = fav_model.replace("claude-", "").split("-20")[0].replace("-", " ").title()
+    Returns:
+        Panel with limit progress bars, or None if no limits data
+    """
+    # Try to capture current limits
+    from src.commands.limits import capture_limits
 
-    # Streaks
-    current_streak = 0
-    check = today
-    while check >= oldest_date:
-        if daily_tokens.get(check.strftime("%Y-%m-%d"), 0) > 0:
-            current_streak += 1
-            check -= timedelta(days=1)
-        else:
-            break
+    limits = capture_limits()
+    if not limits or "error" in limits:
+        return None
 
-    longest_streak = 0
-    temp = 0
-    for d in sorted(daily_tokens.keys()):
-        if daily_tokens[d] > 0:
-            temp += 1
-            longest_streak = max(longest_streak, temp)
-        else:
-            temp = 0
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Label", style="white", justify="left")
+    table.add_column("Bar", justify="left")
+    table.add_column("Percent", style=ORANGE, justify="right")
+    table.add_column("Reset", style=CYAN, justify="left")
 
-    # Peak hour
-    peak_hour = max(hourly_activity.items(), key=lambda x: x[1])[0] if hourly_activity else 12
+    # Session limit
+    session_bar = _create_bar(limits["session_pct"], 100, width=30)
+    table.add_row(
+        "[bold]Session",
+        session_bar,
+        f"{limits['session_pct']}%",
+        f"resets {limits['session_reset']}",
+    )
 
-    # Longest session
-    session_times: dict[str, tuple[datetime, datetime]] = {}
-    for r in records:
-        sid = r.session_id
-        if sid not in session_times:
-            session_times[sid] = (r.timestamp, r.timestamp)
-        else:
-            first, last = session_times[sid]
-            session_times[sid] = (min(first, r.timestamp), max(last, r.timestamp))
+    # Week limit
+    week_bar = _create_bar(limits["week_pct"], 100, width=30)
+    table.add_row(
+        "[bold]Week",
+        week_bar,
+        f"{limits['week_pct']}%",
+        f"resets {limits['week_reset']}",
+    )
 
-    longest_sec = max(((last - first).total_seconds() for first, last in session_times.values()), default=0)
-
-    # Stats grid - two columns
-    content.append("  ╭─────────────────────────────────────────╮\n", style=DIM)
-
-    # Row 1: Favorite model & Total tokens
-    content.append("  │ ", style=DIM)
-    content.append("★ ", style=EMBER)
-    content.append(f"{fav_model:<16}", style=f"bold {AMBER_GLOW}")
-    content.append("  ", style=DIM)
-    content.append(f"{_fmt(total_tokens):>10}", style=f"bold {AMBER_GLOW}")
-    content.append(" tokens", style=DIM)
-    content.append(" │\n", style=DIM)
-
-    # Row 2: Current streak & Longest streak
-    content.append("  │ ", style=DIM)
-    content.append("🔥", style=EMBER)
-    content.append(f" {current_streak} day streak        ", style="white")
-    content.append(f"Best: {longest_streak} days", style=DIM)
-    content.append("  │\n", style=DIM)
-
-    # Row 3: Sessions & Peak hour
-    content.append("  │ ", style=DIM)
-    content.append(f"  {total_sessions} sessions", style="white")
-    content.append(f"           Peak: {peak_hour:02d}:00-{(peak_hour+1)%24:02d}:00", style=DIM)
-    content.append(" │\n", style=DIM)
-
-    # Row 4: Longest session & Active days
-    content.append("  │ ", style=DIM)
-    content.append(f"  Longest: {_duration_str(longest_sec):<8}", style="white")
-    content.append(f"      Active: {active_days}/{days_of_data} days", style=DIM)
-    content.append(" │\n", style=DIM)
-
-    content.append("  ╰─────────────────────────────────────────╯\n", style=DIM)
-
-    # Fun comparison
-    if longest_sec > 1320:  # > 22 mins
-        office_eps = int(longest_sec / 60 / 22)
-        if office_eps >= 1:
-            content.append(f"\n  💡 Longest session = {office_eps}× The Office episodes\n", style=f"italic {SAGE}")
+    # Opus limit
+    opus_bar = _create_bar(limits["opus_pct"], 100, width=30)
+    table.add_row(
+        "[bold]Opus",
+        opus_bar,
+        f"{limits['opus_pct']}%",
+        f"resets {limits['opus_reset']}",
+    )
 
     return Panel(
-        content,
-        title=f"[bold {AMBER_GLOW}]◈ Activity Heatmap",
-        border_style=SLATE,
-        padding=(0, 1),
+        table,
+        title="[bold]Usage Limits",
+        border_style="white",
     )
 
 
 def _create_model_breakdown(records: list[UsageRecord]) -> Panel:
-    """Create a visual breakdown of token usage by model."""
-    model_data: dict[str, dict] = defaultdict(lambda: {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0, "total": 0})
+    """
+    Create table showing token usage per model.
+
+    Args:
+        records: List of usage records
+
+    Returns:
+        Panel with model breakdown table
+    """
+    # Aggregate tokens by model
+    model_tokens: dict[str, int] = defaultdict(int)
 
     for record in records:
         if record.model and record.token_usage and record.model != "<synthetic>":
-            m = record.model
-            model_data[m]["input"] += record.token_usage.input_tokens
-            model_data[m]["output"] += record.token_usage.output_tokens
-            model_data[m]["cache_write"] += record.token_usage.cache_creation_tokens
-            model_data[m]["cache_read"] += record.token_usage.cache_read_tokens
-            model_data[m]["total"] += record.token_usage.total_tokens
+            model_tokens[record.model] += record.token_usage.total_tokens
 
-    if not model_data:
-        return Panel(Text("No model data", style=DIM), title="Models", border_style=GHOST)
+    if not model_tokens:
+        return Panel(
+            Text("No model data available", style=DIM),
+            title="[bold]Tokens by Model",
+            border_style="white",
+        )
 
-    total_all = sum(d["total"] for d in model_data.values())
-    max_total = max(d["total"] for d in model_data.values())
-    sorted_models = sorted(model_data.items(), key=lambda x: x[1]["total"], reverse=True)
+    # Calculate total and max
+    total_tokens = sum(model_tokens.values())
+    max_tokens = max(model_tokens.values())
 
-    content = Text()
+    # Sort by usage
+    sorted_models = sorted(model_tokens.items(), key=lambda x: x[1], reverse=True)
 
-    for model, data in sorted_models[:5]:
-        # Clean model name
-        name = model.replace("claude-", "").split("-20")[0]
-        pct = (data["total"] / total_all * 100) if total_all > 0 else 0
+    # Create table
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Model", style="white", justify="left", width=25)
+    table.add_column("Bar", justify="left")
+    table.add_column("Tokens", style=ORANGE, justify="right")
+    table.add_column("Percentage", style=CYAN, justify="right")
 
-        # Model name and percentage
-        content.append(f"  {name:<20}", style="white")
-        content.append(f"{pct:5.1f}%\n", style=AMBER_GLOW)
+    for model, tokens in sorted_models:
+        # Shorten model name
+        display_name = model.split("/")[-1] if "/" in model else model
+        if "claude" in display_name.lower():
+            display_name = display_name.replace("claude-", "")
 
-        # Visual bar
-        content.append("  ")
-        content.append(_gradient_bar(data["total"], max_total, width=26))
-        content.append(f" {_fmt(data['total']):>6}\n", style=DIM)
+        percentage = (tokens / total_tokens * 100) if total_tokens > 0 else 0
 
-        # Token breakdown (input/output)
-        in_pct = (data["input"] / data["total"] * 100) if data["total"] > 0 else 0
-        out_pct = (data["output"] / data["total"] * 100) if data["total"] > 0 else 0
-        content.append(f"  ", style=DIM)
-        content.append(f"in:{in_pct:4.0f}% ", style=SAGE)
-        content.append(f"out:{out_pct:4.0f}%", style=SLATE)
-        content.append("\n\n", style=DIM)
+        # Create bar
+        bar = _create_bar(tokens, max_tokens, width=20)
 
-    return Panel(
-        content,
-        title=f"[bold {AMBER_GLOW}]◈ Models",
-        border_style=SLATE,
-        padding=(0, 1),
-    )
-
-
-def _create_branch_breakdown(records: list[UsageRecord]) -> Panel:
-    """Create breakdown by git branch."""
-    branch_tokens: dict[str, int] = defaultdict(int)
-
-    for record in records:
-        if record.token_usage:
-            branch = record.git_branch or "detached"
-            branch_tokens[branch] += record.token_usage.total_tokens
-
-    if not branch_tokens:
-        return Panel(Text("No branch data", style=DIM), title="Branches", border_style=GHOST)
-
-    total = sum(branch_tokens.values())
-    sorted_branches = sorted(branch_tokens.items(), key=lambda x: x[1], reverse=True)
-
-    # Limit to top 5 + other
-    if len(sorted_branches) > 5:
-        top = sorted_branches[:5]
-        other = sum(t for _, t in sorted_branches[5:])
-        if other > 0:
-            top.append(("other", other))
-        sorted_branches = top
-
-    max_tokens = max(t for _, t in sorted_branches)
-
-    content = Text()
-    for branch, tokens in sorted_branches:
-        name = branch[:20] + "…" if len(branch) > 20 else branch
-        pct = (tokens / total * 100) if total > 0 else 0
-
-        content.append(f"  {name:<21}", style="white")
-        content.append(_gradient_bar(tokens, max_tokens, width=15))
-        content.append(f" {pct:5.1f}%\n", style=DIM)
+        table.add_row(
+            display_name,
+            bar,
+            _format_number(tokens),
+            f"{percentage:.1f}%",
+        )
 
     return Panel(
-        content,
-        title=f"[bold {AMBER_GLOW}]◈ Branches",
-        border_style=SLATE,
-        padding=(0, 1),
+        table,
+        title="[bold]Tokens by Model",
+        border_style="white",
     )
 
 
 def _create_project_breakdown(records: list[UsageRecord]) -> Panel:
-    """Create breakdown by project folder."""
+    """
+    Create table showing token usage per project.
+
+    Args:
+        records: List of usage records
+
+    Returns:
+        Panel with project breakdown table
+    """
+    # Aggregate tokens by folder
     folder_tokens: dict[str, int] = defaultdict(int)
 
     for record in records:
@@ -468,114 +478,104 @@ def _create_project_breakdown(records: list[UsageRecord]) -> Panel:
             folder_tokens[record.folder] += record.token_usage.total_tokens
 
     if not folder_tokens:
-        return Panel(Text("No project data", style=DIM), title="Projects", border_style=GHOST)
+        return Panel(
+            Text("No project data available", style=DIM),
+            title="[bold]Tokens by Project",
+            border_style="white",
+        )
 
-    total = sum(folder_tokens.values())
-    sorted_folders = sorted(folder_tokens.items(), key=lambda x: x[1], reverse=True)[:8]
-    max_tokens = max(t for _, t in sorted_folders)
+    # Calculate total and max
+    total_tokens = sum(folder_tokens.values())
 
-    content = Text()
+    # Sort by usage
+    sorted_folders = sorted(folder_tokens.items(), key=lambda x: x[1], reverse=True)
+
+    # Limit to top 10 projects
+    sorted_folders = sorted_folders[:10]
+    max_tokens = max(tokens for _, tokens in sorted_folders)
+
+    # Create table
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Project", style="white", justify="left", overflow="crop")
+    table.add_column("Bar", justify="left", overflow="crop")
+    table.add_column("Tokens", style=ORANGE, justify="right")
+    table.add_column("Percentage", style=CYAN, justify="right")
+
     for folder, tokens in sorted_folders:
-        # Shorten path (cross-platform)
-        name = _shorten_path(folder)
-        name = name[:25] + "…" if len(name) > 25 else name
+        # Show only last 2-3 parts of path and truncate if needed
+        parts = folder.split("/")
+        if len(parts) > 3:
+            display_name = ".../" + "/".join(parts[-2:])
+        elif len(parts) > 2:
+            display_name = "/".join(parts[-2:])
+        else:
+            display_name = folder
 
-        pct = (tokens / total * 100) if total > 0 else 0
+        # Manually truncate to 35 chars without ellipses
+        if len(display_name) > 35:
+            display_name = display_name[:35]
 
-        content.append(f"  {name:<26}", style="white")
-        content.append(_gradient_bar(tokens, max_tokens, width=12))
-        content.append(f" {pct:5.1f}%\n", style=DIM)
+        percentage = (tokens / total_tokens * 100) if total_tokens > 0 else 0
+
+        # Create bar
+        bar = _create_bar(tokens, max_tokens, width=20)
+
+        table.add_row(
+            display_name,
+            bar,
+            _format_number(tokens),
+            f"{percentage:.1f}%",
+        )
 
     return Panel(
-        content,
-        title=f"[bold {AMBER_GLOW}]◈ Projects",
-        border_style=SLATE,
-        padding=(0, 1),
+        table,
+        title="[bold]Tokens by Project",
+        border_style="white",
     )
 
 
-def _create_footer(date_range: Optional[str] = None, fast_mode: bool = False) -> Text:
-    """Create footer with date range and tips."""
+def _create_footer(date_range: str = None, fast_mode: bool = False) -> Text:
+    """
+    Create footer with export command info and date range.
+
+    Args:
+        date_range: Optional date range string to display
+        fast_mode: If True, show warning about fast mode
+
+    Returns:
+        Text with export instructions and date range
+    """
     footer = Text()
 
+    # Add fast mode warning if enabled
     if fast_mode:
         from src.storage.snapshot_db import get_database_stats
         db_stats = get_database_stats()
         if db_stats.get("newest_timestamp"):
+            # Format ISO timestamp to be more readable
+            timestamp_str = db_stats["newest_timestamp"]
             try:
-                dt = datetime.fromisoformat(db_stats["newest_timestamp"])
-                footer.append("  ⚡ Fast mode: ", style=f"bold {EMBER}")
-                footer.append(f"data from {dt.strftime('%Y-%m-%d %H:%M')}\n", style=DIM)
+                dt = datetime.fromisoformat(timestamp_str)
+                formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                footer.append("⚠ Fast mode: Reading from last update (", style="bold red")
+                footer.append(f"{formatted_time}", style="bold red")
+                footer.append(")\n\n", style="bold red")
             except (ValueError, AttributeError):
-                footer.append("  ⚡ Fast mode enabled\n", style=f"bold {EMBER}")
+                footer.append(f"⚠ Fast mode: Reading from last update ({timestamp_str})\n\n", style="bold red")
+        else:
+            footer.append("⚠ Fast mode: Reading from database (no timestamp available)\n\n", style="bold red")
 
+    # Add date range if provided
     if date_range:
-        footer.append(f"  📅 {date_range}\n", style=DIM)
+        footer.append("Data range: ", style=DIM)
+        footer.append(f"{date_range}\n", style=f"bold {CYAN}")
 
-    footer.append("\n  💡 ", style=DIM)
-    footer.append("ccg export --open", style=f"bold {SAGE}")
-    footer.append(" for full yearly heatmap", style=DIM)
+    # Add export tip
+    footer.append("Tip: ", style=DIM)
+    footer.append("View yearly heatmap with ", style=DIM)
+    footer.append("ccg export --open", style=f"bold {CYAN}")
 
     return footer
-#endregion
 
 
-#region Main Render Function
-def render_dashboard(
-    stats: AggregatedStats,
-    records: list[UsageRecord],
-    console: Console,
-    skip_limits: bool = False,  # Kept for API compatibility, currently unused
-    clear_screen: bool = True,
-    date_range: Optional[str] = None,
-    limits_from_db: Optional[dict] = None,  # Kept for API compatibility, currently unused
-    fast_mode: bool = False
-) -> None:
-    """
-    Render the complete dashboard with warm, data-observatory aesthetic.
-
-    Note: Limits tracking is temporarily disabled due to Claude Code /usage format changes.
-    The skip_limits and limits_from_db parameters are kept for API compatibility.
-
-    Layout:
-    ┌────────────────────────────────────────┐
-    │           ◆ CLAUDE USAGE ◆            │
-    │     1.2M tokens │ 847 prompts │ 23 sess│
-    ├────────────────────────────────────────┤
-    │          ◈ Activity Heatmap           │
-    │  [heatmap grid + stats]                │
-    ├───────────────────┬────────────────────┤
-    │   ◈ Models        │   ◈ Branches       │
-    ├───────────────────┴────────────────────┤
-    │   ◈ Projects                           │
-    └────────────────────────────────────────┘
-    """
-    if clear_screen:
-        console.clear()
-
-    # Header with key metrics
-    header = _create_header(stats, records)
-    console.print(header)
-
-    # Activity heatmap (the hero component)
-    heatmap = _create_heatmap(records)
-    console.print(heatmap)
-    console.print()
-
-    # Model and branch breakdowns side by side
-    model_panel = _create_model_breakdown(records)
-    branch_panel = _create_branch_breakdown(records)
-
-    # Use columns for side-by-side layout
-    console.print(Columns([model_panel, branch_panel], equal=True, expand=True))
-    console.print()
-
-    # Project breakdown
-    project_panel = _create_project_breakdown(records)
-    console.print(project_panel)
-    console.print()
-
-    # Footer
-    footer = _create_footer(date_range, fast_mode)
-    console.print(footer)
 #endregion
