@@ -236,56 +236,100 @@ def save_snapshot(
     try:
         # Save individual records only if in "full" mode
         if storage_mode == "full":
+            # Bulk path: materialize the batch as an Arrow Table, register it
+            # as a DuckDB relation, and dedupe-INSERT in one statement against
+            # the UNIQUE(session_id, message_uuid) index. Arrow's columnar
+            # vectorized loader is ~50x faster than executemany() for 100k+
+            # row batches (executemany pays per-row Python<->C overhead).
+            #
+            # Soft-import pyarrow so the install footprint stays optional --
+            # fall back to a chunked executemany VALUES path if it's missing.
+            try:
+                import pyarrow as pa
+                use_arrow = True
+            except ImportError:
+                use_arrow = False
+
+            cols = {
+                "date": [], "timestamp": [], "session_id": [], "message_uuid": [],
+                "message_type": [], "model": [], "folder": [], "git_branch": [],
+                "version": [],
+                "input_tokens": [], "output_tokens": [],
+                "cache_creation_tokens": [], "cache_read_tokens": [], "total_tokens": [],
+            }
             for record in records:
-                input_tokens = record.token_usage.input_tokens if record.token_usage else 0
-                output_tokens = record.token_usage.output_tokens if record.token_usage else 0
-                cache_creation_tokens = record.token_usage.cache_creation_tokens if record.token_usage else 0
-                cache_read_tokens = record.token_usage.cache_read_tokens if record.token_usage else 0
-                total_tokens = record.token_usage.total_tokens if record.token_usage else 0
+                tu = record.token_usage
+                cols["date"].append(record.date_key)
+                cols["timestamp"].append(record.timestamp.isoformat())
+                cols["session_id"].append(record.session_id)
+                cols["message_uuid"].append(record.message_uuid)
+                cols["message_type"].append(record.message_type)
+                cols["model"].append(record.model)
+                cols["folder"].append(record.folder)
+                cols["git_branch"].append(record.git_branch)
+                cols["version"].append(record.version)
+                cols["input_tokens"].append(tu.input_tokens if tu else 0)
+                cols["output_tokens"].append(tu.output_tokens if tu else 0)
+                cols["cache_creation_tokens"].append(tu.cache_creation_tokens if tu else 0)
+                cols["cache_read_tokens"].append(tu.cache_read_tokens if tu else 0)
+                cols["total_tokens"].append(tu.total_tokens if tu else 0)
 
-                try:
-                    # Check if record exists
-                    result = conn.execute("""
-                        SELECT 1 FROM usage_records
-                        WHERE session_id = ? AND message_uuid = ?
-                    """, [record.session_id, record.message_uuid]).fetchone()
+            conn.execute("""
+                CREATE OR REPLACE TEMP TABLE staging_records (
+                    date VARCHAR, timestamp VARCHAR,
+                    session_id VARCHAR, message_uuid VARCHAR,
+                    message_type VARCHAR, model VARCHAR,
+                    folder VARCHAR, git_branch VARCHAR, version VARCHAR,
+                    input_tokens INTEGER, output_tokens INTEGER,
+                    cache_creation_tokens INTEGER, cache_read_tokens INTEGER,
+                    total_tokens INTEGER
+                )
+            """)
 
-                    if not result:
-                        # Get next ID from sequence
-                        next_id = conn.execute("SELECT nextval('usage_records_id_seq')").fetchone()[0]
+            if use_arrow:
+                arrow_table = pa.table(cols)
+                conn.register("staging_arrow", arrow_table)
+                conn.execute("INSERT INTO staging_records SELECT * FROM staging_arrow")
+                conn.unregister("staging_arrow")
+            else:
+                # Fallback: chunked executemany. Slower but works without pyarrow.
+                rows = list(zip(*cols.values()))
+                chunk = 500
+                for i in range(0, len(rows), chunk):
+                    batch = rows[i:i + chunk]
+                    conn.executemany(
+                        "INSERT INTO staging_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        batch,
+                    )
 
-                        conn.execute("""
-                            INSERT INTO usage_records (
-                                id, date, timestamp, session_id, message_uuid, message_type,
-                                model, folder, git_branch, version,
-                                input_tokens, output_tokens,
-                                cache_creation_tokens, cache_read_tokens, total_tokens,
-                                device_id, device_name, device_type
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, [
-                            next_id,
-                            record.date_key,
-                            record.timestamp.isoformat(),
-                            record.session_id,
-                            record.message_uuid,
-                            record.message_type,
-                            record.model,
-                            record.folder,
-                            record.git_branch,
-                            record.version,
-                            input_tokens,
-                            output_tokens,
-                            cache_creation_tokens,
-                            cache_read_tokens,
-                            total_tokens,
-                            device_id,
-                            device_name,
-                            device_type,
-                        ])
-                        saved_count += 1
-                except duckdb.ConstraintException:
-                    # Record already exists, skip
-                    pass
+            before = conn.execute("SELECT COUNT(*) FROM usage_records").fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO usage_records (
+                    id, date, timestamp, session_id, message_uuid, message_type,
+                    model, folder, git_branch, version,
+                    input_tokens, output_tokens,
+                    cache_creation_tokens, cache_read_tokens, total_tokens,
+                    device_id, device_name, device_type
+                )
+                SELECT
+                    nextval('usage_records_id_seq'),
+                    s.date, s.timestamp, s.session_id, s.message_uuid, s.message_type,
+                    s.model, s.folder, s.git_branch, s.version,
+                    s.input_tokens, s.output_tokens,
+                    s.cache_creation_tokens, s.cache_read_tokens, s.total_tokens,
+                    ?, ?, ?
+                FROM staging_records s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM usage_records u
+                    WHERE u.session_id = s.session_id
+                      AND u.message_uuid = s.message_uuid
+                )
+                """,
+                [device_id, device_name, device_type],
+            )
+            saved_count = conn.execute("SELECT COUNT(*) FROM usage_records").fetchone()[0] - before
+            conn.execute("DROP TABLE staging_records")
 
         # Update daily snapshots
         if storage_mode == "full":
