@@ -16,10 +16,10 @@ def run(console: Console) -> None:
     """
     Update usage database and fill in gaps with empty records.
 
-    This command:
-    1. Saves current usage data from JSONL files
-    2. Fills in missing days with zero-usage records
-    3. Ensures complete date coverage from earliest record to today
+    Incremental: only parses JSONL files whose mtime/size has changed since
+    the last run (tracked in the file_metadata table). On a typical Stop-hook
+    invocation, exactly one file is stale and a handful of new records get
+    inserted.
 
     Args:
         console: Rich console for output
@@ -27,14 +27,25 @@ def run(console: Console) -> None:
     try:
         tracking_mode = get_tracking_mode()
 
-        # Save current snapshot (tokens)
+        # Save current snapshot (tokens) -- incremental via get_stale_files
         if tracking_mode in ["both", "tokens"]:
             jsonl_files = get_claude_jsonl_files()
             if jsonl_files:
-                records = parse_all_jsonl_files(jsonl_files)
-                if records:
-                    saved_count = api.save_snapshot(records, storage_mode=get_storage_mode())
-                    console.print(f"[green]Saved {saved_count} new token records[/green]")
+                stale_files, deleted_files = api.get_stale_files(jsonl_files)
+
+                if stale_files:
+                    records = parse_all_jsonl_files(stale_files)
+                    if records:
+                        saved_count = api.save_snapshot(records, storage_mode=get_storage_mode())
+                        console.print(f"[green]Saved {saved_count} new token records[/green]")
+                    for file_path in stale_files:
+                        api.update_file_metadata(file_path, record_count=0)
+
+                if deleted_files:
+                    api.remove_deleted_file_metadata(deleted_files)
+
+                if not stale_files and not deleted_files:
+                    console.print("[dim]No new data to ingest[/dim]")
 
         # Capture and save limits
         if tracking_mode in ["both", "limits"]:
@@ -53,21 +64,18 @@ def run(console: Console) -> None:
                 console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
                 console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
-        # Get database stats to determine date range
+        # Fill in date gaps so the heatmap is contiguous
         db_stats = api.get_database_stats()
         if db_stats["total_records"] == 0:
             console.print("[yellow]No data to process.[/yellow]")
             return
 
-        # Fill in gaps from oldest date to today
         from datetime import datetime
         today = datetime.now().date().strftime("%Y-%m-%d")
         filled_count = api.fill_empty_daily_snapshots(db_stats["oldest_date"], today)
-
         if filled_count > 0:
             console.print(f"[cyan]Filled {filled_count} empty days[/cyan]")
 
-        # Show updated stats
         db_stats = api.get_database_stats()
         console.print(
             f"[green]Complete! Coverage: {db_stats['oldest_date']} to {db_stats['newest_date']}[/green]"
