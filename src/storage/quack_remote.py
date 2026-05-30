@@ -242,10 +242,40 @@ def push_to_remote(local_db_path: Path) -> dict:
         else:
             # Pull existing (session_id, message_uuid) tuples to a client-side temp,
             # then anti-join during INSERT. Only one streaming op per statement.
+            # Filter by local session_ids so the fetch is O(local_sessions) not
+            # O(remote_total). The naive full-table fetch was ~5min per push at
+            # 1M+ remote rows over a Tailnet link; remote rows whose session is
+            # unknown locally can't possibly collide, so they don't need to be
+            # in existing_keys.
+            local_sessions = [
+                r[0] for r in conn.execute(
+                    "SELECT DISTINCT session_id FROM local_db.usage_records"
+                ).fetchall()
+            ]
             conn.execute("CREATE OR REPLACE TEMP TABLE existing_keys (session_id VARCHAR, message_uuid VARCHAR)")
-            keys = conn.execute("SELECT session_id, message_uuid FROM remote.usage_records").fetchall()
+            if local_sessions:
+                placeholders = ",".join(["?"] * len(local_sessions))
+                keys = conn.execute(
+                    f"SELECT session_id, message_uuid FROM remote.usage_records WHERE session_id IN ({placeholders})",
+                    local_sessions,
+                ).fetchall()
+            else:
+                keys = []
             if keys:
-                conn.executemany("INSERT INTO existing_keys VALUES (?, ?)", keys)
+                # Bulk-load via arrow register; executemany on 5k+ rows takes
+                # multiple seconds per push because each row is a separate
+                # network statement. Arrow is one columnar batch.
+                try:
+                    import pyarrow as pa
+                    arrow_keys = pa.table({
+                        "session_id":  [k[0] for k in keys],
+                        "message_uuid":[k[1] for k in keys],
+                    })
+                    conn.register("staging_keys", arrow_keys)
+                    conn.execute("INSERT INTO existing_keys SELECT * FROM staging_keys")
+                    conn.unregister("staging_keys")
+                except ImportError:
+                    conn.executemany("INSERT INTO existing_keys VALUES (?, ?)", keys)
             conn.execute("""
                 INSERT INTO remote.usage_records (
                     id, date, timestamp, session_id, message_uuid, message_type,
