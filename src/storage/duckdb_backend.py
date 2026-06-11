@@ -21,6 +21,11 @@ from src.models.usage_record import UsageRecord, TokenUsage
 
 #region Constants
 DEFAULT_DB_PATH = Path.home() / ".claude" / "usage" / "usage_history.duckdb"
+
+# DB paths already initialized by this process. init_database runs on every
+# write path; the DDL + pricing seed cost is worth paying once per process,
+# not once per call.
+_INITIALIZED_DBS: set[str] = set()
 #endregion
 
 
@@ -66,6 +71,10 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
         duckdb.Error: If database initialization fails
     """
     require_duckdb()
+
+    if str(db_path) in _INITIALIZED_DBS and db_path.exists():
+        return
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = duckdb.connect(str(db_path))
@@ -119,11 +128,11 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             CREATE SEQUENCE IF NOT EXISTS usage_records_id_seq START 1
         """)
 
-        # Index for faster date-based queries
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_usage_records_date
-            ON usage_records(date)
-        """)
+        # No explicit date indexes: rows arrive in near-date order, so
+        # zonemaps already prune date filters, and an ART index here once
+        # corrupted silently (equality lookups missed rows that full scans
+        # returned). Drop any survivors from older schema versions.
+        conn.execute("DROP INDEX IF EXISTS idx_usage_records_date")
 
         # Table for usage limits snapshots
         conn.execute("""
@@ -142,11 +151,7 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
         """)
 
-        # Index for faster date-based queries on limits
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_limits_snapshots_date
-            ON limits_snapshots(date)
-        """)
+        conn.execute("DROP INDEX IF EXISTS idx_limits_snapshots_date")
 
         # Table for tracking JSONL file metadata (for incremental parsing)
         conn.execute("""
@@ -156,6 +161,14 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 size_bytes BIGINT NOT NULL,
                 record_count INTEGER NOT NULL,
                 last_parsed VARCHAR NOT NULL
+            )
+        """)
+
+        # Table for sync bookkeeping (e.g. push watermarks)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_state (
+                key VARCHAR PRIMARY KEY,
+                value VARCHAR NOT NULL
             )
         """)
 
@@ -194,6 +207,7 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, [model_name, input_price, output_price, cache_write, cache_read, timestamp, notes])
 
+        _INITIALIZED_DBS.add(str(db_path))
     finally:
         conn.close()
 
@@ -329,53 +343,36 @@ def save_snapshot(
                 [device_id, device_name, device_type],
             )
             saved_count = conn.execute("SELECT COUNT(*) FROM usage_records").fetchone()[0] - before
-            conn.execute("DROP TABLE staging_records")
 
-        # Update daily snapshots
-        if storage_mode == "full":
+            # Rebuild daily snapshots only for dates present in this batch.
+            # Dates outside the batch keep their existing rows, preserving
+            # history for days whose JSONL files have aged out. One set-based
+            # upsert replaces the previous per-date query loop.
             timestamp = datetime.now().isoformat()
+            conn.execute("""
+                INSERT OR REPLACE INTO daily_snapshots (
+                    date, total_prompts, total_responses, total_sessions, total_tokens,
+                    input_tokens, output_tokens, cache_creation_tokens,
+                    cache_read_tokens, snapshot_timestamp,
+                    device_id, device_name, device_type
+                )
+                SELECT
+                    u.date,
+                    SUM(CASE WHEN u.message_type = 'user' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN u.message_type = 'assistant' THEN 1 ELSE 0 END),
+                    COUNT(DISTINCT u.session_id),
+                    COALESCE(SUM(u.total_tokens), 0),
+                    COALESCE(SUM(u.input_tokens), 0),
+                    COALESCE(SUM(u.output_tokens), 0),
+                    COALESCE(SUM(u.cache_creation_tokens), 0),
+                    COALESCE(SUM(u.cache_read_tokens), 0),
+                    ?, ?, ?, ?
+                FROM usage_records u
+                WHERE u.date IN (SELECT DISTINCT date FROM staging_records)
+                GROUP BY u.date
+            """, [timestamp, device_id, device_name, device_type])
 
-            # Get all dates that currently have usage_records
-            dates_result = conn.execute("SELECT DISTINCT date FROM usage_records").fetchall()
-            dates_with_records = [row[0] for row in dates_result]
-
-            for date in dates_with_records:
-                row = conn.execute("""
-                    SELECT
-                        SUM(CASE WHEN message_type = 'user' THEN 1 ELSE 0 END) as total_prompts,
-                        SUM(CASE WHEN message_type = 'assistant' THEN 1 ELSE 0 END) as total_responses,
-                        COUNT(DISTINCT session_id) as total_sessions,
-                        SUM(total_tokens) as total_tokens,
-                        SUM(input_tokens) as input_tokens,
-                        SUM(output_tokens) as output_tokens,
-                        SUM(cache_creation_tokens) as cache_creation_tokens,
-                        SUM(cache_read_tokens) as cache_read_tokens
-                    FROM usage_records
-                    WHERE date = ?
-                """, [date]).fetchone()
-
-                conn.execute("""
-                    INSERT OR REPLACE INTO daily_snapshots (
-                        date, total_prompts, total_responses, total_sessions, total_tokens,
-                        input_tokens, output_tokens, cache_creation_tokens,
-                        cache_read_tokens, snapshot_timestamp,
-                        device_id, device_name, device_type
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, [
-                    date,
-                    row[0] or 0,
-                    row[1] or 0,
-                    row[2] or 0,
-                    row[3] or 0,
-                    row[4] or 0,
-                    row[5] or 0,
-                    row[6] or 0,
-                    row[7] or 0,
-                    timestamp,
-                    device_id,
-                    device_name,
-                    device_type,
-                ])
+            conn.execute("DROP TABLE staging_records")
         else:
             # Aggregate mode
             from collections import defaultdict
@@ -924,35 +921,42 @@ def get_stale_files(
         conn.close()
 
 
-def update_file_metadata(
-    file_path: Path,
-    record_count: int,
+def update_files_metadata(
+    file_paths: list[Path],
+    record_count: int = 0,
     db_path: Path = DEFAULT_DB_PATH
 ) -> None:
     """
-    Update file metadata after successful parsing.
+    Upsert parse metadata for many files in a single connection.
+
+    Files that fail to stat are skipped.
     """
     require_duckdb()
+
+    if not file_paths:
+        return
+
     init_database(db_path)
 
+    timestamp = datetime.now().isoformat()
+    rows = []
+    for file_path in file_paths:
+        try:
+            stat = file_path.stat()
+        except OSError:
+            continue
+        rows.append([str(file_path), stat.st_mtime_ns, stat.st_size, record_count, timestamp])
+
+    if not rows:
+        return
+
     conn = duckdb.connect(str(db_path))
-
     try:
-        stat = file_path.stat()
-        timestamp = datetime.now().isoformat()
-
-        conn.execute("""
+        conn.executemany("""
             INSERT OR REPLACE INTO file_metadata (
                 file_path, mtime_ns, size_bytes, record_count, last_parsed
             ) VALUES (?, ?, ?, ?, ?)
-        """, [
-            str(file_path),
-            stat.st_mtime_ns,
-            stat.st_size,
-            record_count,
-            timestamp,
-        ])
-
+        """, rows)
     finally:
         conn.close()
 
@@ -972,8 +976,77 @@ def remove_deleted_file_metadata(
     conn = duckdb.connect(str(db_path))
 
     try:
-        for path in deleted_paths:
-            conn.execute("DELETE FROM file_metadata WHERE file_path = ?", [path])
+        conn.executemany(
+            "DELETE FROM file_metadata WHERE file_path = ?",
+            [(path,) for path in deleted_paths],
+        )
+    finally:
+        conn.close()
+
+
+def get_update_coverage(db_path: Path = DEFAULT_DB_PATH) -> dict:
+    """
+    Get record count and date bounds of usage_records.
+
+    Cheap alternative to get_database_stats for flows that only need
+    coverage, not token/cost aggregates.
+
+    Returns:
+        Dict with total_records, oldest_date, newest_date
+    """
+    require_duckdb()
+
+    if not db_path.exists():
+        return {"total_records": 0, "oldest_date": None, "newest_date": None}
+
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*), MIN(date), MAX(date) FROM usage_records"
+        ).fetchone()
+        return {"total_records": row[0] or 0, "oldest_date": row[1], "newest_date": row[2]}
+    finally:
+        conn.close()
+
+
+def get_sync_state(key: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[str]:
+    """
+    Read a value from the sync_state table.
+
+    Returns:
+        Stored value, or None if missing or the table doesn't exist yet
+    """
+    require_duckdb()
+
+    if not db_path.exists():
+        return None
+
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        try:
+            row = conn.execute(
+                "SELECT value FROM sync_state WHERE key = ?", [key]
+            ).fetchone()
+        except duckdb.Error:
+            return None
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def set_sync_state(key: str, value: str, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """
+    Upsert a value in the sync_state table.
+    """
+    require_duckdb()
+    init_database(db_path)
+
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)",
+            [key, value],
+        )
     finally:
         conn.close()
 

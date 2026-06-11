@@ -113,8 +113,12 @@ def get_stale_files(all_files: list[Path], db: Optional[Path] = None):
     return _backend().get_stale_files(all_files, db_path=db or get_db_path())
 
 
-def update_file_metadata(file_path: Path, record_count: int, db: Optional[Path] = None) -> None:
-    _backend().update_file_metadata(file_path, record_count, db_path=db or get_db_path())
+def update_files_metadata(file_paths: list[Path], record_count: int = 0, db: Optional[Path] = None) -> None:
+    _backend().update_files_metadata(file_paths, record_count=record_count, db_path=db or get_db_path())
+
+
+def get_update_coverage(db: Optional[Path] = None) -> dict:
+    return _backend().get_update_coverage(db or get_db_path())
 
 
 def remove_deleted_file_metadata(deleted_paths: list[str], db: Optional[Path] = None) -> None:
