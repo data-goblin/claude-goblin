@@ -1,9 +1,12 @@
 #region Imports
+from pathlib import Path
+from typing import Optional
+
 from rich.console import Console
 
 from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
-from src.config.user_config import get_storage_mode, get_tracking_mode
+from src.config.user_config import get_extra_sources, get_storage_mode, get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage import api
 #endregion
@@ -29,16 +32,49 @@ def run(console: Console) -> None:
 
         # Save current snapshot (tokens) -- incremental via get_stale_files
         if tracking_mode in ["both", "tokens"]:
+            # Each source is (jsonl files, device overrides); None overrides
+            # means this device's identity from config.
+            sources: list[tuple[list[Path], Optional[dict]]] = []
             jsonl_files = get_claude_jsonl_files()
             if jsonl_files:
-                stale_files, deleted_files = api.get_stale_files(jsonl_files)
+                sources.append((jsonl_files, None))
+            for extra in get_extra_sources():
+                extra_dir = Path(extra["path"])
+                if extra_dir.is_dir():
+                    extra_files = list(extra_dir.rglob("*.jsonl"))
+                    if extra_files:
+                        sources.append((extra_files, extra))
 
-                if stale_files:
-                    records = parse_all_jsonl_files(stale_files)
+            all_files = [f for files, _ in sources for f in files]
+            if all_files:
+                # One stale/deleted pass over the union of all sources:
+                # get_stale_files marks tracked paths missing from its input
+                # as deleted, so separate per-source calls would evict each
+                # other's file_metadata rows.
+                stale_files, deleted_files = api.get_stale_files(all_files)
+                stale_set = {str(f) for f in stale_files}
+
+                for files, overrides in sources:
+                    source_stale = [f for f in files if str(f) in stale_set]
+                    if not source_stale:
+                        continue
+                    records = parse_all_jsonl_files(source_stale)
                     if records:
-                        saved_count = api.save_snapshot(records, storage_mode=get_storage_mode())
-                        console.print(f"[green]Saved {saved_count} new token records[/green]")
-                    for file_path in stale_files:
+                        device_kwargs = {}
+                        if overrides:
+                            device_kwargs = {
+                                "device_id": overrides["device_id"],
+                                "device_name": overrides["device_name"],
+                                "device_type": overrides["device_type"],
+                            }
+                        saved_count = api.save_snapshot(
+                            records,
+                            storage_mode=get_storage_mode(),
+                            **device_kwargs,
+                        )
+                        source_label = f" ({overrides['device_name']})" if overrides else ""
+                        console.print(f"[green]Saved {saved_count} new token records{source_label}[/green]")
+                    for file_path in source_stale:
                         api.update_file_metadata(file_path, record_count=0)
 
                 if deleted_files:
