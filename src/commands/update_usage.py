@@ -1,4 +1,5 @@
 #region Imports
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +14,90 @@ from src.storage import api
 
 
 #region Functions
+
+
+def ingest_token_usage(console: Console, force: bool = False, verbose: bool = True) -> int:
+    """
+    Parse stale JSONL files from all configured sources and save records.
+
+    Sources are the main Claude projects directory plus any extra_sources
+    config entries, each saved under its own device identity. Incremental:
+    only files whose mtime/size changed since the last run are parsed
+    (tracked in file_metadata); force reparses everything.
+
+    Args:
+        console: Rich console for output
+        force: Reparse all files, ignoring the incremental cache
+        verbose: Print per-source save counts and the no-op message
+
+    Returns:
+        Number of new records saved across all sources
+    """
+    # Each source is (jsonl files, device overrides); None overrides means
+    # this device's identity from config.
+    sources: list[tuple[list[Path], Optional[dict]]] = []
+    jsonl_files = get_claude_jsonl_files()
+    if jsonl_files:
+        sources.append((jsonl_files, None))
+    for extra in get_extra_sources():
+        extra_dir = Path(extra["path"])
+        if extra_dir.is_dir():
+            extra_files = list(extra_dir.rglob("*.jsonl"))
+            if extra_files:
+                sources.append((extra_files, extra))
+
+    all_files = [f for files, _ in sources for f in files]
+    if not all_files:
+        return 0
+
+    # One stale/deleted pass over the union of all sources: get_stale_files
+    # marks tracked paths missing from its input as deleted, so separate
+    # per-source calls would evict each other's file_metadata rows.
+    if force:
+        stale_files, deleted_files = all_files, []
+    else:
+        stale_files, deleted_files = api.get_stale_files(all_files)
+    stale_set = {str(f) for f in stale_files}
+
+    total_saved = 0
+    for files, overrides in sources:
+        source_stale = [f for f in files if str(f) in stale_set]
+        if not source_stale:
+            continue
+        # A failing source must not block the others, so trap and report per
+        # source. Metadata is updated only after a successful save; failed
+        # files stay stale for retry.
+        label = overrides["device_name"] if overrides else "this device"
+        try:
+            records = parse_all_jsonl_files(source_stale)
+            if records:
+                device_kwargs = {}
+                if overrides:
+                    device_kwargs = {
+                        "device_id": overrides["device_id"],
+                        "device_name": overrides["device_name"],
+                        "device_type": overrides["device_type"],
+                    }
+                saved_count = api.save_snapshot(
+                    records,
+                    storage_mode=get_storage_mode(),
+                    **device_kwargs,
+                )
+                total_saved += saved_count
+                if verbose:
+                    source_label = f" ({overrides['device_name']})" if overrides else ""
+                    console.print(f"[green]Saved {saved_count} new token records{source_label}[/green]")
+            api.update_files_metadata(source_stale, record_count=0)
+        except Exception as e:
+            console.print(f"[yellow]⚠ Source {label} failed, will retry next run: {e}[/yellow]")
+
+    if deleted_files:
+        api.remove_deleted_file_metadata(deleted_files)
+
+    if verbose and not stale_files and not deleted_files:
+        console.print("[dim]No new data to ingest[/dim]")
+
+    return total_saved
 
 
 def run(console: Console) -> None:
@@ -32,56 +117,7 @@ def run(console: Console) -> None:
 
         # Save current snapshot (tokens) -- incremental via get_stale_files
         if tracking_mode in ["both", "tokens"]:
-            # Each source is (jsonl files, device overrides); None overrides
-            # means this device's identity from config.
-            sources: list[tuple[list[Path], Optional[dict]]] = []
-            jsonl_files = get_claude_jsonl_files()
-            if jsonl_files:
-                sources.append((jsonl_files, None))
-            for extra in get_extra_sources():
-                extra_dir = Path(extra["path"])
-                if extra_dir.is_dir():
-                    extra_files = list(extra_dir.rglob("*.jsonl"))
-                    if extra_files:
-                        sources.append((extra_files, extra))
-
-            all_files = [f for files, _ in sources for f in files]
-            if all_files:
-                # One stale/deleted pass over the union of all sources:
-                # get_stale_files marks tracked paths missing from its input
-                # as deleted, so separate per-source calls would evict each
-                # other's file_metadata rows.
-                stale_files, deleted_files = api.get_stale_files(all_files)
-                stale_set = {str(f) for f in stale_files}
-
-                for files, overrides in sources:
-                    source_stale = [f for f in files if str(f) in stale_set]
-                    if not source_stale:
-                        continue
-                    records = parse_all_jsonl_files(source_stale)
-                    if records:
-                        device_kwargs = {}
-                        if overrides:
-                            device_kwargs = {
-                                "device_id": overrides["device_id"],
-                                "device_name": overrides["device_name"],
-                                "device_type": overrides["device_type"],
-                            }
-                        saved_count = api.save_snapshot(
-                            records,
-                            storage_mode=get_storage_mode(),
-                            **device_kwargs,
-                        )
-                        source_label = f" ({overrides['device_name']})" if overrides else ""
-                        console.print(f"[green]Saved {saved_count} new token records{source_label}[/green]")
-                    for file_path in source_stale:
-                        api.update_file_metadata(file_path, record_count=0)
-
-                if deleted_files:
-                    api.remove_deleted_file_metadata(deleted_files)
-
-                if not stale_files and not deleted_files:
-                    console.print("[dim]No new data to ingest[/dim]")
+            ingest_token_usage(console)
 
         # Capture and save limits
         if tracking_mode in ["both", "limits"]:
@@ -100,21 +136,20 @@ def run(console: Console) -> None:
                 console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
                 console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
-        # Fill in date gaps so the heatmap is contiguous
-        db_stats = api.get_database_stats()
-        if db_stats["total_records"] == 0:
+        # Fill in date gaps so the heatmap is contiguous. Coverage comes from
+        # a cheap count/min/max query, not the full stats aggregation.
+        coverage = api.get_update_coverage()
+        if coverage["total_records"] == 0:
             console.print("[yellow]No data to process.[/yellow]")
             return
 
-        from datetime import datetime
         today = datetime.now().date().strftime("%Y-%m-%d")
-        filled_count = api.fill_empty_daily_snapshots(db_stats["oldest_date"], today)
+        filled_count = api.fill_empty_daily_snapshots(coverage["oldest_date"], today)
         if filled_count > 0:
             console.print(f"[cyan]Filled {filled_count} empty days[/cyan]")
 
-        db_stats = api.get_database_stats()
         console.print(
-            f"[green]Complete! Coverage: {db_stats['oldest_date']} to {db_stats['newest_date']}[/green]"
+            f"[green]Complete! Coverage: {coverage['oldest_date']} to {coverage['newest_date']}[/green]"
         )
 
     except Exception as e:
