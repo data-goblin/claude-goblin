@@ -418,6 +418,44 @@ def set_device_type_config(device_type: str) -> None:
     save_config(config)
 
 
+def get_extra_sources() -> list[dict]:
+    """
+    Get extra JSONL source directories with their device attribution.
+
+    Reads the "extra_sources" config list. Each entry must have:
+    - path: directory scanned recursively for *.jsonl
+    - device_id: valid device identifier for records from this source
+    - device_name: human-readable device name
+    - device_type: one of "macos", "windows", "linux"
+
+    Returns:
+        List of validated source dicts; invalid entries are skipped
+    """
+    config = load_config()
+    sources = []
+    for entry in config.get("extra_sources", []):
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        device_id = entry.get("device_id", "")
+        device_name = entry.get("device_name", "")
+        device_type = entry.get("device_type", "")
+        if (
+            not path
+            or not validate_device_id(device_id)
+            or not validate_device_name(device_name)
+            or device_type not in VALID_DEVICE_TYPES
+        ):
+            continue
+        sources.append({
+            "path": str(Path(path).expanduser()),
+            "device_id": device_id,
+            "device_name": device_name,
+            "device_type": device_type,
+        })
+    return sources
+
+
 def get_sync_config() -> dict:
     """
     Get provider-specific sync configuration.
