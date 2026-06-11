@@ -9,7 +9,9 @@ from rich.console import Console
 from src.commands import update_usage as _update_usage_module
 
 
-def update_usage_command() -> None:
+def update_usage_command(
+    push: bool = typer.Option(False, "--push", help="Push new records to the configured remote after updating"),
+) -> None:
     """
     Update historical database with latest data.
 
@@ -21,7 +23,11 @@ def update_usage_command() -> None:
     Useful for ensuring continuous heatmap data without gaps.
 
     Examples:
-        ccg update usage    Update the usage database
+        ccg update usage           Update the usage database
+        ccg update usage --push    Update, then push to the remote in one process
     """
     console = Console()
     _update_usage_module.run(console)
+    if push:
+        from src.commands.sync.push import run_push
+        run_push(console, strict=False)

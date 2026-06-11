@@ -158,6 +158,8 @@ def init_remote_schema(conn: "duckdb.DuckDBPyConnection") -> None:
             UNIQUE(session_id, message_uuid)
         )
     """)
+    # Stays empty on remote: quack lacks DELETE/ON CONFLICT so daily rows
+    # cannot be upserted; readers aggregate from remote.usage_records instead.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS remote.daily_snapshots (
             date VARCHAR PRIMARY KEY,
@@ -208,142 +210,279 @@ def init_remote_schema(conn: "duckdb.DuckDBPyConnection") -> None:
 
 #region Push
 
+# sync_state keys on the local db tracking what has been pushed
+WM_USAGE_KEY = "last_pushed_usage_id"
+WM_LIMITS_KEY = "last_pushed_limits_ts"
 
-def push_to_remote(local_db_path: Path) -> dict:
+# Above this many candidate sessions the IN-list dedupe pull is no longer
+# clearly cheaper than the full key pull, so fall back to the full path.
+_MAX_INCREMENTAL_SESSIONS = 1000
+
+_USAGE_COLS = (
+    "id, date, timestamp, session_id, message_uuid, message_type, "
+    "model, folder, git_branch, version, "
+    "input_tokens, output_tokens, "
+    "cache_creation_tokens, cache_read_tokens, total_tokens, "
+    "device_id, device_name, device_type"
+)
+
+
+def _read_local_push_state(local_db_path: Path) -> dict:
+    """
+    Read push watermarks and current local maxima from the local db.
+
+    Returns:
+        Dict with max_id, max_limits_ts, wm_id, wm_limits_ts
+    """
+    from src.storage.duckdb_backend import get_sync_state
+
+    conn = duckdb.connect(str(local_db_path), read_only=True)
+    try:
+        try:
+            max_id = conn.execute("SELECT MAX(id) FROM usage_records").fetchone()[0]
+        except duckdb.Error:
+            max_id = None
+        try:
+            max_limits_ts = conn.execute(
+                "SELECT MAX(timestamp) FROM limits_snapshots"
+            ).fetchone()[0]
+        except duckdb.Error:
+            max_limits_ts = None
+    finally:
+        conn.close()
+
+    wm_raw = get_sync_state(WM_USAGE_KEY, db_path=local_db_path)
+    return {
+        "max_id": max_id,
+        "max_limits_ts": max_limits_ts,
+        "wm_id": int(wm_raw) if wm_raw is not None else None,
+        "wm_limits_ts": get_sync_state(WM_LIMITS_KEY, db_path=local_db_path),
+    }
+
+
+def _push_usage_full(conn: "duckdb.DuckDBPyConnection") -> None:
+    """
+    Anti-join INSERT of all local usage_records missing from remote.
+
+    Quack lacks ON CONFLICT and rejects mixing streaming scans + INSERTs in
+    one query, so existing keys are materialized in a client temp table.
+    """
+    conn.execute("CREATE OR REPLACE TEMP TABLE existing_keys (session_id VARCHAR, message_uuid VARCHAR)")
+    keys = conn.execute("SELECT session_id, message_uuid FROM remote.usage_records").fetchall()
+    if keys:
+        conn.executemany("INSERT INTO existing_keys VALUES (?, ?)", keys)
+    conn.execute(f"""
+        INSERT INTO remote.usage_records ({_USAGE_COLS})
+        SELECT {_USAGE_COLS}
+        FROM local_db.usage_records s
+        WHERE NOT EXISTS (
+            SELECT 1 FROM existing_keys k
+            WHERE k.session_id = s.session_id AND k.message_uuid = s.message_uuid
+        )
+    """)
+    conn.execute("DROP TABLE existing_keys")
+
+
+def _push_usage_incremental(conn: "duckdb.DuckDBPyConnection", wm_id: int) -> int:
+    """
+    Push only local usage_records with id above the watermark.
+
+    Dedupes against remote keys for the candidate sessions only, instead of
+    pulling every remote key (the dominant cost of the full push).
+
+    Returns:
+        Number of records inserted, counted client-side before the INSERT
+
+    Raises:
+        RuntimeError: If the candidate session list is too large
+        duckdb.Error: On any remote failure
+    """
+    sessions = [r[0] for r in conn.execute(
+        "SELECT DISTINCT session_id FROM local_db.usage_records WHERE id > ?", [wm_id]
+    ).fetchall()]
+    if len(sessions) > _MAX_INCREMENTAL_SESSIONS:
+        raise RuntimeError(f"{len(sessions)} candidate sessions; full push is cheaper")
+
+    conn.execute("CREATE OR REPLACE TEMP TABLE existing_keys (session_id VARCHAR, message_uuid VARCHAR)")
+    if sessions:
+        placeholders = ", ".join("?" for _ in sessions)
+        keys = conn.execute(
+            f"SELECT session_id, message_uuid FROM remote.usage_records WHERE session_id IN ({placeholders})",
+            sessions,
+        ).fetchall()
+        if keys:
+            conn.executemany("INSERT INTO existing_keys VALUES (?, ?)", keys)
+
+    anti_join = f"""
+        FROM local_db.usage_records s
+        WHERE s.id > ?
+          AND NOT EXISTS (
+              SELECT 1 FROM existing_keys k
+              WHERE k.session_id = s.session_id AND k.message_uuid = s.message_uuid
+          )
+    """
+    # Count locally instead of diffing remote COUNT(*) before/after; both
+    # sides of the anti-join are client-side, so this costs no round trip.
+    to_insert = conn.execute(f"SELECT COUNT(*) {anti_join}", [wm_id]).fetchone()[0]
+    if to_insert > 0:
+        conn.execute(f"INSERT INTO remote.usage_records ({_USAGE_COLS}) SELECT {_USAGE_COLS} {anti_join}", [wm_id])
+    conn.execute("DROP TABLE existing_keys")
+    return to_insert
+
+
+def _push_model_pricing(conn: "duckdb.DuckDBPyConnection") -> None:
+    """
+    Anti-join INSERT of new model_pricing rows by model_name.
+
+    Price updates to existing rows are not propagated until quack adds
+    DELETE/UPSERT; pricing changes rarely and local stats use local pricing.
+    """
+    try:
+        existing_models = [r[0] for r in conn.execute(
+            "SELECT model_name FROM remote.model_pricing"
+        ).fetchall()]
+        if existing_models:
+            conn.execute("CREATE OR REPLACE TEMP TABLE existing_models (model_name VARCHAR)")
+            conn.executemany("INSERT INTO existing_models VALUES (?)", [(m,) for m in existing_models])
+            conn.execute("""
+                INSERT INTO remote.model_pricing
+                SELECT s.* FROM local_db.model_pricing s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM existing_models e WHERE e.model_name = s.model_name
+                )
+            """)
+            conn.execute("DROP TABLE existing_models")
+        else:
+            conn.execute("INSERT INTO remote.model_pricing SELECT * FROM local_db.model_pricing")
+    except Exception:
+        pass
+
+
+def _push_limits(conn: "duckdb.DuckDBPyConnection") -> bool:
+    """
+    Anti-join INSERT of new limits_snapshots rows by timestamp.
+
+    Returns:
+        True if limits are fully pushed (or there was nothing to push);
+        False on any failure so the limits watermark is not advanced
+    """
+    try:
+        local_limits = conn.execute("SELECT COUNT(*) FROM local_db.limits_snapshots").fetchone()[0]
+        if local_limits == 0:
+            return True
+        existing_ts = [r[0] for r in conn.execute(
+            "SELECT timestamp FROM remote.limits_snapshots"
+        ).fetchall()]
+        if existing_ts:
+            conn.execute("CREATE OR REPLACE TEMP TABLE existing_limits_ts (timestamp VARCHAR)")
+            conn.executemany("INSERT INTO existing_limits_ts VALUES (?)", [(t,) for t in existing_ts])
+            conn.execute("""
+                INSERT INTO remote.limits_snapshots
+                SELECT s.* FROM local_db.limits_snapshots s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM existing_limits_ts e WHERE e.timestamp = s.timestamp
+                )
+            """)
+            conn.execute("DROP TABLE existing_limits_ts")
+        else:
+            conn.execute("INSERT INTO remote.limits_snapshots SELECT * FROM local_db.limits_snapshots")
+        return True
+    except Exception:
+        return False
+
+
+def push_to_remote(local_db_path: Path, full: bool = False) -> dict:
+    """
+    Push new local records to the remote, additively.
+
+    Uses a local watermark (sync_state) to push only records inserted since
+    the last successful push. With nothing new locally, returns without
+    connecting to the remote at all. full=True forces the watermark-free
+    anti-join push that reconciles any remote gaps.
+
+    Returns:
+        Dict with new_records, remote_total, devices, skipped
+    """
     _require_duckdb()
-    conn = connect_remote()
 
+    state = _read_local_push_state(local_db_path)
+    wm_id = None if full else state["wm_id"]
+
+    # A local max id below the watermark means the local db was rebuilt;
+    # discard the watermark so the full anti-join reconciles from scratch.
+    if wm_id is not None and (state["max_id"] or 0) < wm_id:
+        wm_id = None
+
+    new_usage = state["max_id"] is not None and (wm_id is None or state["max_id"] > wm_id)
+    new_limits = state["max_limits_ts"] is not None and (
+        full or state["wm_limits_ts"] is None or state["max_limits_ts"] > state["wm_limits_ts"]
+    )
+
+    if not new_usage and not new_limits and not full:
+        return {"new_records": 0, "remote_total": None, "devices": None, "skipped": True}
+
+    conn = connect_remote()
+    incremental = False
+    limits_ok = True
+    new_records = 0
+    remote_total = None
+    devices = None
     try:
         init_remote_schema(conn)
         conn.execute(f"ATTACH '{local_db_path}' AS local_db (READ_ONLY)")
 
         before = conn.execute("SELECT COUNT(*) FROM remote.usage_records").fetchone()[0]
 
-        # Quack lacks ON CONFLICT and rejects mixing streaming scans + INSERTs
-        # in the same query, so dedupe via a client-materialized key table.
-        # Empty remote => plain INSERT (no dedup needed).
-        if before == 0:
-            conn.execute("""
-                INSERT INTO remote.usage_records (
-                    id, date, timestamp, session_id, message_uuid, message_type,
-                    model, folder, git_branch, version,
-                    input_tokens, output_tokens,
-                    cache_creation_tokens, cache_read_tokens, total_tokens,
-                    device_id, device_name, device_type
-                )
-                SELECT
-                    id, date, timestamp, session_id, message_uuid, message_type,
-                    model, folder, git_branch, version,
-                    input_tokens, output_tokens,
-                    cache_creation_tokens, cache_read_tokens, total_tokens,
-                    device_id, device_name, device_type
-                FROM local_db.usage_records
-            """)
-        else:
-            # Pull existing (session_id, message_uuid) tuples to a client-side temp,
-            # then anti-join during INSERT. Only one streaming op per statement.
-            conn.execute("CREATE OR REPLACE TEMP TABLE existing_keys (session_id VARCHAR, message_uuid VARCHAR)")
-            keys = conn.execute("SELECT session_id, message_uuid FROM remote.usage_records").fetchall()
-            if keys:
-                conn.executemany("INSERT INTO existing_keys VALUES (?, ?)", keys)
-            conn.execute("""
-                INSERT INTO remote.usage_records (
-                    id, date, timestamp, session_id, message_uuid, message_type,
-                    model, folder, git_branch, version,
-                    input_tokens, output_tokens,
-                    cache_creation_tokens, cache_read_tokens, total_tokens,
-                    device_id, device_name, device_type
-                )
-                SELECT
-                    s.id, s.date, s.timestamp, s.session_id, s.message_uuid, s.message_type,
-                    s.model, s.folder, s.git_branch, s.version,
-                    s.input_tokens, s.output_tokens,
-                    s.cache_creation_tokens, s.cache_read_tokens, s.total_tokens,
-                    s.device_id, s.device_name, s.device_type
-                FROM local_db.usage_records s
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM existing_keys k
-                    WHERE k.session_id = s.session_id AND k.message_uuid = s.message_uuid
-                )
-            """)
-            conn.execute("DROP TABLE existing_keys")
-
-        after = conn.execute("SELECT COUNT(*) FROM remote.usage_records").fetchone()[0]
-        new_records = after - before
-
-        # Rebuild snapshots only for dates in the pushed batch
-        _rebuild_remote_snapshots(conn, local_conn_name="local_db")
-
-        # Push model_pricing -- quack lacks both ON CONFLICT and DELETE, so the
-        # best we can do is anti-join INSERT new model_name rows. Updates to
-        # existing model_name prices are not propagated until quack adds
-        # DELETE/UPSERT. Acceptable: pricing changes rarely, and stats on local
-        # use local pricing.
-        try:
-            existing_models = [r[0] for r in conn.execute(
-                "SELECT model_name FROM remote.model_pricing"
-            ).fetchall()]
-            if existing_models:
-                conn.execute("CREATE OR REPLACE TEMP TABLE existing_models (model_name VARCHAR)")
-                conn.executemany("INSERT INTO existing_models VALUES (?)", [(m,) for m in existing_models])
-                conn.execute("""
-                    INSERT INTO remote.model_pricing
-                    SELECT s.* FROM local_db.model_pricing s
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM existing_models e WHERE e.model_name = s.model_name
-                    )
+        if new_usage or full:
+            if before == 0:
+                # Empty remote (fresh server or restore): plain INSERT of
+                # everything local, regardless of watermark.
+                conn.execute(f"""
+                    INSERT INTO remote.usage_records ({_USAGE_COLS})
+                    SELECT {_USAGE_COLS} FROM local_db.usage_records
                 """)
-                conn.execute("DROP TABLE existing_models")
+            elif wm_id is not None:
+                try:
+                    new_records = _push_usage_incremental(conn, wm_id)
+                    incremental = True
+                except Exception:
+                    _push_usage_full(conn)
             else:
-                conn.execute("INSERT INTO remote.model_pricing SELECT * FROM local_db.model_pricing")
-        except Exception:
-            pass
+                _push_usage_full(conn)
 
-        # Push limits_snapshots -- same anti-join pattern via client temp table
-        try:
-            local_limits = conn.execute("SELECT COUNT(*) FROM local_db.limits_snapshots").fetchone()[0]
-            if local_limits > 0:
-                existing_ts = [r[0] for r in conn.execute(
-                    "SELECT timestamp FROM remote.limits_snapshots"
-                ).fetchall()]
-                if existing_ts:
-                    conn.execute("CREATE OR REPLACE TEMP TABLE existing_limits_ts (timestamp VARCHAR)")
-                    conn.executemany("INSERT INTO existing_limits_ts VALUES (?)", [(t,) for t in existing_ts])
-                    conn.execute("""
-                        INSERT INTO remote.limits_snapshots
-                        SELECT s.* FROM local_db.limits_snapshots s
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM existing_limits_ts e WHERE e.timestamp = s.timestamp
-                        )
-                    """)
-                    conn.execute("DROP TABLE existing_limits_ts")
-                else:
-                    conn.execute("INSERT INTO remote.limits_snapshots SELECT * FROM local_db.limits_snapshots")
-        except Exception:
-            pass
+        if new_limits:
+            limits_ok = _push_limits(conn)
 
-        remote_total = conn.execute("SELECT COUNT(*) FROM remote.usage_records").fetchone()[0]
-        devices = conn.execute(
-            "SELECT COUNT(DISTINCT device_id) FROM remote.usage_records WHERE device_id IS NOT NULL"
-        ).fetchone()[0]
-
-        return {
-            "new_records": new_records,
-            "remote_total": remote_total,
-            "devices": devices,
-        }
+        # Remote-total/device reporting and pricing sync only off the hot
+        # path: on an incremental push these remote scans cost more than
+        # the insert itself.
+        if not incremental:
+            _push_model_pricing(conn)
+            remote_total = conn.execute("SELECT COUNT(*) FROM remote.usage_records").fetchone()[0]
+            new_records = remote_total - before
+            devices = conn.execute(
+                "SELECT COUNT(DISTINCT device_id) FROM remote.usage_records WHERE device_id IS NOT NULL"
+            ).fetchone()[0]
     finally:
         conn.close()
 
+    # Advance watermarks only after the remote connection is closed: its
+    # READ_ONLY attach holds the local file open, and a concurrent writer
+    # handle on the same file would conflict. Exceptions above propagate
+    # before reaching here, so a failed push never advances a watermark.
+    from src.storage.duckdb_backend import set_sync_state
 
-def _rebuild_remote_snapshots(conn: "duckdb.DuckDBPyConnection", local_conn_name: str = "local_db") -> None:
-    # Quack does not implement DELETE on attached tables ("Can only delete from
-    # base table") and does not implement ON CONFLICT, so daily snapshots on the
-    # remote cannot be upserted in place. Skip the rebuild here -- the
-    # read-side aggregator (get_database_stats) computes the same totals
-    # directly from remote.usage_records, so this table stays unused on remote
-    # until quack adds DELETE/UPSERT support.
-    return
+    if state["max_id"] is not None:
+        set_sync_state(WM_USAGE_KEY, str(state["max_id"]), db_path=local_db_path)
+    if limits_ok and state["max_limits_ts"] is not None:
+        set_sync_state(WM_LIMITS_KEY, state["max_limits_ts"], db_path=local_db_path)
+
+    return {
+        "new_records": new_records,
+        "remote_total": remote_total,
+        "devices": devices,
+        "skipped": False,
+    }
 
 
 #endregion
