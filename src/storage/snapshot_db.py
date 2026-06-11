@@ -1151,40 +1151,45 @@ def get_stale_files(
         conn.close()
 
 
-def update_file_metadata(
-    file_path: Path,
-    record_count: int,
+def update_files_metadata(
+    file_paths: list[Path],
+    record_count: int = 0,
     db_path: Path = DEFAULT_DB_PATH
 ) -> None:
     """
-    Update file metadata after successful parsing.
+    Upsert parse metadata for many files in a single connection.
+
+    Files that fail to stat are skipped.
 
     Args:
-        file_path: Path to the JSONL file
-        record_count: Number of records parsed from the file
+        file_paths: Paths to the JSONL files
+        record_count: Number of records parsed from each file
         db_path: Path to the SQLite database file
     """
+    if not file_paths:
+        return
+
     init_database(db_path)
 
+    timestamp = datetime.now().isoformat()
+    rows = []
+    for file_path in file_paths:
+        try:
+            stat = file_path.stat()
+        except OSError:
+            continue
+        rows.append((str(file_path), stat.st_mtime_ns, stat.st_size, record_count, timestamp))
+
+    if not rows:
+        return
+
     conn = sqlite3.connect(db_path)
-
     try:
-        cursor = conn.cursor()
-        stat = file_path.stat()
-        timestamp = datetime.now().isoformat()
-
-        cursor.execute("""
+        conn.executemany("""
             INSERT OR REPLACE INTO file_metadata (
                 file_path, mtime_ns, size_bytes, record_count, last_parsed
             ) VALUES (?, ?, ?, ?, ?)
-        """, (
-            str(file_path),
-            stat.st_mtime_ns,
-            stat.st_size,
-            record_count,
-            timestamp,
-        ))
-
+        """, rows)
         conn.commit()
     finally:
         conn.close()
@@ -1216,6 +1221,29 @@ def remove_deleted_file_metadata(
             cursor.execute("DELETE FROM file_metadata WHERE file_path = ?", (path,))
 
         conn.commit()
+    finally:
+        conn.close()
+
+
+def get_update_coverage(db_path: Path = DEFAULT_DB_PATH) -> dict:
+    """
+    Get record count and date bounds of usage_records.
+
+    Cheap alternative to get_database_stats for flows that only need
+    coverage, not token/cost aggregates.
+
+    Returns:
+        Dict with total_records, oldest_date, newest_date
+    """
+    if not db_path.exists():
+        return {"total_records": 0, "oldest_date": None, "newest_date": None}
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*), MIN(date), MAX(date) FROM usage_records"
+        ).fetchone()
+        return {"total_records": row[0] or 0, "oldest_date": row[1], "newest_date": row[2]}
     finally:
         conn.close()
 
