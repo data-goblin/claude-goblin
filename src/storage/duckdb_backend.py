@@ -339,6 +339,10 @@ def save_snapshot(
                     WHERE u.session_id = s.session_id
                       AND u.message_uuid = s.message_uuid
                 )
+                QUALIFY row_number() OVER (
+                    PARTITION BY s.session_id, s.message_uuid
+                    ORDER BY s.timestamp
+                ) = 1
                 """,
                 [device_id, device_name, device_type],
             )
