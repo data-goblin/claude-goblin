@@ -9,6 +9,7 @@ from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
 from src.config.user_config import get_extra_sources, get_storage_mode, get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
+from src.data.codex_parser import parse_all_codex_files
 from src.storage import api
 #endregion
 
@@ -69,7 +70,10 @@ def ingest_token_usage(console: Console, force: bool = False, verbose: bool = Tr
         # files stay stale for retry.
         label = overrides["device_name"] if overrides else "this device"
         try:
-            records = parse_all_jsonl_files(source_stale)
+            if overrides and overrides.get("format") == "codex":
+                records = parse_all_codex_files(source_stale)
+            else:
+                records = parse_all_jsonl_files(source_stale)
             if records:
                 device_kwargs = {}
                 if overrides:
