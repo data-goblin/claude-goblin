@@ -447,11 +447,15 @@ def get_extra_sources() -> list[dict]:
             or device_type not in VALID_DEVICE_TYPES
         ):
             continue
+        source_format = entry.get("format", "claude")
+        if source_format not in ("claude", "codex"):
+            source_format = "claude"
         sources.append({
             "path": str(Path(path).expanduser()),
             "device_id": device_id,
             "device_name": device_name,
             "device_type": device_type,
+            "format": source_format,
         })
     return sources
 
