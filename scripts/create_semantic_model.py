@@ -55,6 +55,11 @@ TABLES: dict[str, list[tuple[str, str]]] = {
 
 MEASURES: list[tuple[str, str, str]] = [
     ("Total Tokens", "SUM(usage_daily[total_tokens])", "#,0"),
+    ("Uncached Input Tokens", "SUM(usage_daily[input_tokens])", "#,0"),
+    ("Output Tokens", "SUM(usage_daily[output_tokens])", "#,0"),
+    ("Cache Write Tokens", "SUM(usage_daily[cache_creation_tokens])", "#,0"),
+    ("Cache Read Tokens", "SUM(usage_daily[cache_read_tokens])", "#,0"),
+    ("Cache Read %", "DIVIDE([Cache Read Tokens], [Total Tokens])", "0.0%"),
     (
         "Est API Cost",
         "SUMX(\n"
