@@ -130,6 +130,7 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | `ccg export -o output.png` | Specify output file path |
 | **Data Management** | |
 | `ccg update usage` | Update historical database with latest data |
+| `ccg update usage --rebuild` | Repair inflated history from surviving transcripts |
 | `ccg remove usage --force` | Delete historical database (requires --force) |
 | `ccg restore usage` | Restore from backup |
 | **Setup** | |
@@ -156,8 +157,32 @@ supported and can run in parallel from a single `ccg sync push`:
 | `quack` | A remote DuckDB server | Quack protocol (e.g. over Tailscale) |
 | `onelake` | A Microsoft Fabric lakehouse | Delta Lake merges over OneLake (delta-rs) |
 
-Both sinks are watermark-incremental and dedupe on `(session_id,
-message_uuid)`, so pushes are idempotent and cheap when there is nothing new.
+Both sinks are watermark-incremental and idempotent - cheap when there is
+nothing new.
+
+### Counting model
+
+Tokens are counted once per BILLED API response: records are keyed on the
+API `message.id` + `requestId`, globally across sessions. This collapses
+Claude Code's streaming-flush duplicate entries and session-fork history
+replays, matching how ccusage counts. Databases populated by older ccg
+versions overstate tokens (every flush entry was counted); repair with:
+
+```bash
+ccg update usage --rebuild
+```
+
+The repair backs up the database, re-ingests every session whose transcript
+still exists on disk, and leaves rows beyond the ~30-day transcript
+retention untouched (they are the only surviving record of that usage and
+keep the old counting). After a rebuild, quack pushes are blocked until the
+remote's old rows are purged (`ccg sync push --quack-purged --full` once
+done); the OneLake sink self-corrects with `ccg sync push --full`.
+
+Aggregate storage mode tracks each file's last contribution and applies only
+the delta on reparse, so growing session files no longer re-add their whole
+history on every update. Prefer `--storage duckdb` with
+`"storage_mode": "full"` for exact accounting.
 
 ### OneLake (Microsoft Fabric)
 
