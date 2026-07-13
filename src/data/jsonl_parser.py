@@ -52,13 +52,21 @@ def parse_jsonl_file(file_path: Path) -> Iterator[UsageRecord]:
 
 def parse_all_jsonl_files(file_paths: list[Path]) -> list[UsageRecord]:
     """
-    Parse multiple JSONL files and return all usage records.
+    Parse multiple JSONL files and return deduplicated usage records.
+
+    Assistant records are deduplicated GLOBALLY by their billed-response
+    identity (message_uuid = API message id + request id): Claude Code
+    writes one entry per streaming flush and session forks replay history
+    into new session files, so one billed response can appear many times
+    across entries, sessions, and files. The record with the largest total
+    token usage wins (usage grows monotonically across flushes); ties keep
+    the latest timestamp. User records pass through untouched.
 
     Args:
         file_paths: List of paths to JSONL files
 
     Returns:
-        List of all UsageRecord objects found across all files
+        List of deduplicated UsageRecord objects across all files
 
     Raises:
         ValueError: If file_paths is empty
@@ -75,7 +83,36 @@ def parse_all_jsonl_files(file_paths: list[Path]) -> list[UsageRecord]:
         except Exception as e:
             print(f"Warning: Error parsing {file_path}: {e}")
 
-    return records
+    return dedupe_records(records)
+
+
+def dedupe_records(records: list[UsageRecord]) -> list[UsageRecord]:
+    """
+    Collapse assistant records sharing a billed-response identity.
+
+    Keeps, per message_uuid, the record with max total tokens (ties: latest
+    timestamp), preserving first-appearance order. User records pass through.
+    """
+    best: dict[str, UsageRecord] = {}
+    order: list[str] = []
+    others: list[UsageRecord] = []
+    for record in records:
+        if not record.is_assistant_response:
+            others.append(record)
+            continue
+        key = record.message_uuid
+        current = best.get(key)
+        if current is None:
+            best[key] = record
+            order.append(key)
+            continue
+        new_total = record.token_usage.total_tokens if record.token_usage else 0
+        cur_total = current.token_usage.total_tokens if current.token_usage else 0
+        if new_total > cur_total or (
+            new_total == cur_total and record.timestamp > current.timestamp
+        ):
+            best[key] = record
+    return others + [best[key] for key in order]
 
 
 def _parse_record(data: dict) -> Optional[UsageRecord]:
@@ -106,7 +143,6 @@ def _parse_record(data: dict) -> Optional[UsageRecord]:
 
     # Extract metadata (common to both user and assistant)
     session_id = data.get("sessionId", "unknown")
-    message_uuid = data.get("uuid", "unknown")
     folder = data.get("cwd", "unknown")
     git_branch = data.get("gitBranch")
     version = data.get("version", "unknown")
@@ -114,6 +150,17 @@ def _parse_record(data: dict) -> Optional[UsageRecord]:
     # Extract message data
     message = data.get("message", {})
     model = message.get("model")
+
+    # Identity: assistant rows key on the billed API response (message id +
+    # request id) so streaming flush entries and session-fork replays of the
+    # same response dedupe to one record; user/legacy rows keep the
+    # transcript entry uuid.
+    api_id = message.get("id")
+    request_id = data.get("requestId")
+    if message_type == "assistant" and api_id:
+        message_uuid = f"{api_id}:{request_id}" if request_id else api_id
+    else:
+        message_uuid = data.get("uuid", "unknown")
 
     # Filter out synthetic models (test/internal artifacts)
     if model == "<synthetic>":

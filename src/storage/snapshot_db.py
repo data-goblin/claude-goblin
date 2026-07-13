@@ -282,6 +282,40 @@ def save_snapshot(
                 cache_read_tokens = record.token_usage.cache_read_tokens if record.token_usage else 0
                 total_tokens = record.token_usage.total_tokens if record.token_usage else 0
 
+                # Assistant rows dedupe GLOBALLY on the billed-response id
+                # (session forks replay identical responses under new session
+                # ids); user rows stay session-scoped. An existing row with
+                # smaller usage upgrades in place (mid-stream partial
+                # capture), never downgrades.
+                if record.message_type == "assistant":
+                    cursor.execute(
+                        "SELECT id, total_tokens FROM usage_records "
+                        "WHERE message_uuid = ? AND message_type = 'assistant'",
+                        (record.message_uuid,),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT id, total_tokens FROM usage_records "
+                        "WHERE session_id = ? AND message_uuid = ?",
+                        (record.session_id, record.message_uuid),
+                    )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    if record.message_type == "assistant" and total_tokens > (existing[1] or 0):
+                        cursor.execute("""
+                            UPDATE usage_records
+                            SET timestamp = ?, input_tokens = ?, output_tokens = ?,
+                                cache_creation_tokens = ?, cache_read_tokens = ?,
+                                total_tokens = ?
+                            WHERE id = ?
+                        """, (
+                            record.timestamp.isoformat(),
+                            input_tokens, output_tokens,
+                            cache_creation_tokens, cache_read_tokens,
+                            total_tokens, existing[0],
+                        ))
+                    continue
+
                 try:
                     cursor.execute("""
                         INSERT INTO usage_records (
@@ -312,7 +346,7 @@ def save_snapshot(
                     ))
                     saved_count += 1
                 except sqlite3.IntegrityError:
-                    # Record already exists, skip it
+                    # Same key inserted concurrently between check and insert
                     pass
 
         # Update daily snapshots (aggregate by date)

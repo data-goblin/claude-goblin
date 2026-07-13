@@ -325,6 +325,38 @@ def save_snapshot(
                     )
 
             before = conn.execute("SELECT COUNT(*) FROM usage_records").fetchone()[0]
+
+            # Upgrade path: a message first captured mid-stream carries
+            # partial usage; when a later batch brings the same billed
+            # response with larger totals, update the row in place (never
+            # downgrade).
+            conn.execute(
+                """
+                UPDATE usage_records
+                SET timestamp = b.timestamp,
+                    input_tokens = b.input_tokens,
+                    output_tokens = b.output_tokens,
+                    cache_creation_tokens = b.cache_creation_tokens,
+                    cache_read_tokens = b.cache_read_tokens,
+                    total_tokens = b.total_tokens
+                FROM (
+                    SELECT * FROM staging_records s
+                    WHERE s.message_type = 'assistant'
+                    QUALIFY row_number() OVER (
+                        PARTITION BY s.message_uuid
+                        ORDER BY s.total_tokens DESC, s.timestamp DESC
+                    ) = 1
+                ) b
+                WHERE usage_records.message_type = 'assistant'
+                  AND usage_records.message_uuid = b.message_uuid
+                  AND b.total_tokens > usage_records.total_tokens
+                """
+            )
+
+            # Insert gate: assistant rows dedupe GLOBALLY on the billed
+            # response id (session forks replay identical responses under new
+            # session ids); user rows stay session-scoped. Within the batch,
+            # the max-usage duplicate wins.
             conn.execute(
                 """
                 INSERT INTO usage_records (
@@ -344,12 +376,14 @@ def save_snapshot(
                 FROM staging_records s
                 WHERE NOT EXISTS (
                     SELECT 1 FROM usage_records u
-                    WHERE u.session_id = s.session_id
-                      AND u.message_uuid = s.message_uuid
+                    WHERE u.message_uuid = s.message_uuid
+                      AND (s.message_type = 'assistant' OR u.session_id = s.session_id)
                 )
                 QUALIFY row_number() OVER (
-                    PARTITION BY s.session_id, s.message_uuid
-                    ORDER BY s.timestamp
+                    PARTITION BY CASE WHEN s.message_type = 'assistant'
+                                      THEN s.message_uuid
+                                      ELSE s.session_id || '|' || s.message_uuid END
+                    ORDER BY s.total_tokens DESC, s.timestamp DESC
                 ) = 1
                 """,
                 [device_id, device_name, device_type],
