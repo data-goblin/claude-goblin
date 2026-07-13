@@ -215,6 +215,26 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
         """)
 
+        # Per-file aggregate contributions ledger (aggregate storage mode):
+        # what each transcript file last added to daily_snapshots, so a
+        # reparse of a grown file applies only the delta instead of re-adding
+        # the whole file.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS file_contributions (
+                file_path TEXT NOT NULL,
+                date TEXT NOT NULL,
+                prompts INTEGER NOT NULL,
+                responses INTEGER NOT NULL,
+                sessions INTEGER NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                cache_creation_tokens INTEGER NOT NULL,
+                cache_read_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                PRIMARY KEY (file_path, date)
+            )
+        """)
+
         # Populate pricing data from JSON file (with fallback)
         pricing_data = load_model_pricing()
 
@@ -500,6 +520,103 @@ def save_snapshot(
         conn.close()
 
     return saved_count
+
+
+def save_file_aggregate(
+    file_path: Path,
+    records: list[UsageRecord],
+    db_path: Path = DEFAULT_DB_PATH,
+    device_id: Optional[str] = None,
+    device_name: Optional[str] = None,
+    device_type: Optional[str] = None,
+) -> int:
+    """
+    Apply one transcript file's aggregate contribution as a DELTA.
+
+    Computes the file's fresh per-date sums, subtracts what the ledger says
+    the file previously contributed, applies the difference to
+    daily_snapshots, and stores the fresh sums back. A file already tracked
+    in file_metadata but absent from the ledger was parsed under the old
+    add-everything logic: its transition parse contributes zero so
+    pre-ledger totals are never re-added.
+
+    Returns:
+        Number of assistant responses newly accounted for (delta)
+    """
+    from src.storage.duckdb_backend import _CONTRIB_FIELDS, _aggregate_by_date
+
+    init_database(db_path)
+    fresh = _aggregate_by_date(records)
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT date, {', '.join(_CONTRIB_FIELDS)} FROM file_contributions WHERE file_path = ?",
+            (str(file_path),),
+        )
+        previous = {row[0]: dict(zip(_CONTRIB_FIELDS, row[1:])) for row in cursor.fetchall()}
+        if not previous:
+            cursor.execute(
+                "SELECT 1 FROM file_metadata WHERE file_path = ?", (str(file_path),)
+            )
+            if cursor.fetchone() is not None:
+                previous = {date: dict(day) for date, day in fresh.items()}
+
+        timestamp = datetime.now().isoformat()
+        new_responses = 0
+        for date, day in fresh.items():
+            prev = previous.get(date, dict.fromkeys(_CONTRIB_FIELDS, 0))
+            delta = {field: day[field] - prev[field] for field in _CONTRIB_FIELDS}
+            new_responses += max(delta["responses"], 0)
+            if any(delta.values()):
+                cursor.execute(
+                    """
+                    SELECT total_prompts, total_responses, total_sessions,
+                           input_tokens, output_tokens, cache_creation_tokens,
+                           cache_read_tokens
+                    FROM daily_snapshots WHERE date = ?
+                    """,
+                    (date,),
+                )
+                base = cursor.fetchone() or (0, 0, 0, 0, 0, 0, 0)
+                merged = [
+                    max(base[0] + delta["prompts"], 0),
+                    max(base[1] + delta["responses"], 0),
+                    max(base[2] + delta["sessions"], 0),
+                    max(base[3] + delta["input_tokens"], 0),
+                    max(base[4] + delta["output_tokens"], 0),
+                    max(base[5] + delta["cache_creation_tokens"], 0),
+                    max(base[6] + delta["cache_read_tokens"], 0),
+                ]
+                total = merged[3] + merged[4] + merged[5] + merged[6]
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO daily_snapshots (
+                        date, total_prompts, total_responses, total_sessions,
+                        total_tokens, input_tokens, output_tokens,
+                        cache_creation_tokens, cache_read_tokens,
+                        snapshot_timestamp, device_id, device_name, device_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (date, merged[0], merged[1], merged[2], total,
+                     merged[3], merged[4], merged[5], merged[6],
+                     timestamp, device_id, device_name, device_type),
+                )
+
+        cursor.execute("DELETE FROM file_contributions WHERE file_path = ?", (str(file_path),))
+        for date, day in fresh.items():
+            cursor.execute(
+                f"""
+                INSERT INTO file_contributions (file_path, date, {', '.join(_CONTRIB_FIELDS)})
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                tuple([str(file_path), date] + [day[field] for field in _CONTRIB_FIELDS]),
+            )
+        conn.commit()
+        return new_responses
+    finally:
+        conn.close()
 
 
 def save_limits_snapshot(
@@ -1188,7 +1305,8 @@ def get_stale_files(
 def update_files_metadata(
     file_paths: list[Path],
     record_count: int = 0,
-    db_path: Path = DEFAULT_DB_PATH
+    db_path: Path = DEFAULT_DB_PATH,
+    stats: Optional[dict[str, tuple[int, int]]] = None,
 ) -> None:
     """
     Upsert parse metadata for many files in a single connection.
@@ -1208,11 +1326,16 @@ def update_files_metadata(
     timestamp = datetime.now().isoformat()
     rows = []
     for file_path in file_paths:
-        try:
-            stat = file_path.stat()
-        except OSError:
-            continue
-        rows.append((str(file_path), stat.st_mtime_ns, stat.st_size, record_count, timestamp))
+        pre = (stats or {}).get(str(file_path))
+        if pre is not None:
+            mtime_ns, size_bytes = pre
+        else:
+            try:
+                stat = file_path.stat()
+            except OSError:
+                continue
+            mtime_ns, size_bytes = stat.st_mtime_ns, stat.st_size
+        rows.append((str(file_path), mtime_ns, size_bytes, record_count, timestamp))
 
     if not rows:
         return

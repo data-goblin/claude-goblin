@@ -1,16 +1,16 @@
 #region Imports
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 
 from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
 from src.config.user_config import get_extra_sources, get_storage_mode, get_tracking_mode
-from src.data.jsonl_parser import parse_all_jsonl_files
 from src.data.codex_parser import parse_all_codex_files
+from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage import api
+
 #endregion
 
 
@@ -36,7 +36,7 @@ def ingest_token_usage(console: Console, force: bool = False, verbose: bool = Tr
     """
     # Each source is (jsonl files, device overrides); None overrides means
     # this device's identity from config.
-    sources: list[tuple[list[Path], Optional[dict]]] = []
+    sources: list[tuple[list[Path], dict | None]] = []
     jsonl_files = get_claude_jsonl_files()
     if jsonl_files:
         sources.append((jsonl_files, None))
@@ -60,6 +60,7 @@ def ingest_token_usage(console: Console, force: bool = False, verbose: bool = Tr
         stale_files, deleted_files = api.get_stale_files(all_files)
     stale_set = {str(f) for f in stale_files}
 
+    storage_mode = get_storage_mode()
     total_saved = 0
     for files, overrides in sources:
         source_stale = [f for f in files if str(f) in stale_set]
@@ -67,31 +68,51 @@ def ingest_token_usage(console: Console, force: bool = False, verbose: bool = Tr
             continue
         # A failing source must not block the others, so trap and report per
         # source. Metadata is updated only after a successful save; failed
-        # files stay stale for retry.
+        # files stay stale for retry. File stats are captured BEFORE parsing
+        # so bytes appended mid-ingest stay stale for the next run.
         label = overrides["device_name"] if overrides else "this device"
         try:
-            if overrides and overrides.get("format") == "codex":
-                records = parse_all_codex_files(source_stale)
+            pre_stats: dict[str, tuple[int, int]] = {}
+            for f in source_stale:
+                try:
+                    st = f.stat()
+                    pre_stats[str(f)] = (st.st_mtime_ns, st.st_size)
+                except OSError:
+                    pass
+            device_kwargs = {}
+            if overrides:
+                device_kwargs = {
+                    "device_id": overrides["device_id"],
+                    "device_name": overrides["device_name"],
+                    "device_type": overrides["device_type"],
+                }
+            is_codex = bool(overrides and overrides.get("format") == "codex")
+            if storage_mode == "aggregate":
+                # Per-file delta accounting: each file's contribution is
+                # tracked so a grown file's reparse adds only the difference
+                saved_count = 0
+                for f in source_stale:
+                    records = (
+                        parse_all_codex_files([f]) if is_codex
+                        else parse_all_jsonl_files([f])
+                    )
+                    if records:
+                        saved_count += api.save_file_aggregate(f, records, **device_kwargs)
             else:
-                records = parse_all_jsonl_files(source_stale)
-            if records:
-                device_kwargs = {}
-                if overrides:
-                    device_kwargs = {
-                        "device_id": overrides["device_id"],
-                        "device_name": overrides["device_name"],
-                        "device_type": overrides["device_type"],
-                    }
+                records = (
+                    parse_all_codex_files(source_stale) if is_codex
+                    else parse_all_jsonl_files(source_stale)
+                )
                 saved_count = api.save_snapshot(
                     records,
-                    storage_mode=get_storage_mode(),
+                    storage_mode=storage_mode,
                     **device_kwargs,
-                )
-                total_saved += saved_count
-                if verbose:
-                    source_label = f" ({overrides['device_name']})" if overrides else ""
-                    console.print(f"[green]Saved {saved_count} new token records{source_label}[/green]")
-            api.update_files_metadata(source_stale, record_count=0)
+                ) if records else 0
+            total_saved += saved_count
+            if verbose and saved_count:
+                source_label = f" ({overrides['device_name']})" if overrides else ""
+                console.print(f"[green]Saved {saved_count} new token records{source_label}[/green]")
+            api.update_files_metadata(source_stale, record_count=0, stats=pre_stats)
         except Exception as e:
             console.print(f"[yellow]⚠ Source {label} failed, will retry next run: {e}[/yellow]")
 
@@ -138,7 +159,7 @@ def run(console: Console) -> None:
                 console.print(f"[green]Saved limits snapshot (Session: {limits['session_pct']}%, Week: {limits['week_pct']}%, Opus: {limits['opus_pct']}%)[/green]")
             elif limits and "error" in limits:
                 console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
-                console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
+                console.print("[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
         # Fill in date gaps so the heatmap is contiguous. Coverage comes from
         # a cheap count/min/max query, not the full stats aggregation.
