@@ -46,14 +46,13 @@ quack = [
     "pyarrow>=15.0.0",
 ]
 onelake = [
-    "azure-storage-file-datalake>=12.14.0",
-    "azure-identity>=1.15.0",
+    "deltalake>=1.6.2",
+    "pyarrow>=15.0.0",
 ]
 sync = [
     "duckdb>=1.5.2",
     "pyarrow>=15.0.0",
-    "azure-storage-file-datalake>=12.14.0",
-    "azure-identity>=1.15.0",
+    "deltalake>=1.6.2",
 ]
 tui = [
     "textual>=0.89.0",
@@ -93,6 +92,11 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+# pyarrow ships no stubs or py.typed marker
+[[tool.mypy.overrides]]
+module = "pyarrow.*"
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py310"
