@@ -35,8 +35,10 @@ def parse_codex_file(file_path: Path) -> Iterator[UsageRecord]:
       - output_tokens     = last.output_tokens (already includes reasoning tokens)
 
     session_id is the file stem (unique per file, so resumed sessions can't
-    collide) and message_uuid is a per-file turn counter, making re-ingestion
-    of an appended file idempotent against the (session_id, message_uuid) key.
+    collide) and message_uuid is the session id plus a per-file turn counter:
+    globally unique so the cross-session assistant dedupe never collapses
+    turns from different sessions, while re-ingestion of an appended file
+    stays idempotent against the (session_id, message_uuid) key.
 
     Args:
         file_path: Path to a Codex rollout .jsonl file
@@ -95,7 +97,7 @@ def parse_codex_file(file_path: Path) -> Iterator[UsageRecord]:
                 yield UsageRecord(
                     timestamp=ts,
                     session_id=session_id,
-                    message_uuid=f"t{turn}",
+                    message_uuid=f"{session_id}:t{turn}",
                     message_type="assistant",
                     model=model or "codex-unknown",
                     folder=cwd,
