@@ -4,7 +4,7 @@ import platform
 import re
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 #endregion
 
 
@@ -12,6 +12,9 @@ from typing import Optional
 VALID_STORAGE_FORMATS = ["sqlite", "duckdb"]
 VALID_SYNC_PROVIDERS = ["quack", "onedrive", "onelake", "motherduck", "none"]
 VALID_DEVICE_TYPES = ["macos", "windows", "linux"]
+
+# UUID shape for onelake workspace/lakehouse/tenant/model ids
+UUID_PATTERN = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
 
 # Valid device ID pattern: alphanumeric, hyphens, underscores; 1-64 chars
 # Used in file paths, so must be filesystem-safe
@@ -450,25 +453,54 @@ def get_extra_sources() -> list[dict]:
         source_format = entry.get("format", "claude")
         if source_format not in ("claude", "codex"):
             source_format = "claude"
-        sources.append({
+        source = {
             "path": str(Path(path).expanduser()),
             "device_id": device_id,
             "device_name": device_name,
             "device_type": device_type,
             "format": source_format,
-        })
+        }
+        account = entry.get("account")
+        if isinstance(account, dict):
+            source["account"] = account
+        sources.append(source)
     return sources
 
 
-def get_sync_config() -> dict:
+def _is_nested_sync_config(sync_config: dict[str, Any]) -> bool:
+    """True when every key is a provider name mapping to a dict (nested layout)."""
+    if not sync_config:
+        return False
+    return all(
+        key in VALID_SYNC_PROVIDERS and isinstance(value, dict)
+        for key, value in sync_config.items()
+    )
+
+
+def get_sync_config(provider: str) -> dict[str, Any]:
     """
-    Get provider-specific sync configuration.
+    Get sync configuration for one provider.
+
+    Handles both layouts: nested ({provider: {...}}) and legacy flat (a single
+    provider's settings at the top level). A flat layout is returned only when
+    the requested provider matches the configured sync_provider; any other
+    provider gets {} so one provider's settings are never mislabeled as
+    another's.
+
+    Args:
+        provider: Provider name from VALID_SYNC_PROVIDERS
 
     Returns:
-        Dictionary of provider-specific settings
+        Dictionary of that provider's settings ({} if unconfigured)
     """
     config = load_config()
-    return config.get("sync_config", {})
+    sync_config: dict[str, Any] = config.get("sync_config", {})
+    if _is_nested_sync_config(sync_config):
+        entry = sync_config.get(provider, {})
+        return entry if isinstance(entry, dict) else {}
+    if provider == config.get("sync_provider", "none"):
+        return sync_config
+    return {}
 
 
 def validate_sync_config(sync_config: dict, provider: str) -> tuple[bool, Optional[str]]:
@@ -509,6 +541,25 @@ def validate_sync_config(sync_config: dict, provider: str) -> tuple[bool, Option
             return False, "OneLake workspace name contains invalid characters"
         if ".." in lakehouse or "/" in lakehouse or "\\" in lakehouse:
             return False, "OneLake lakehouse name contains invalid characters"
+        for id_field in ("workspace_id", "lakehouse_id", "tenant_id", "semantic_model_id"):
+            value = sync_config.get(id_field)
+            if value is not None and (not isinstance(value, str) or not UUID_PATTERN.match(value)):
+                return False, f"OneLake {id_field} must be a UUID"
+        device_filter = sync_config.get("device_filter")
+        if device_filter is not None:
+            if not isinstance(device_filter, list) or not all(
+                isinstance(d, str) and validate_device_id(d) for d in device_filter
+            ):
+                return False, "OneLake device_filter must be a list of valid device ids"
+        for int_field in ("min_push_interval", "compact_every"):
+            value = sync_config.get(int_field)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 1):
+                return False, f"OneLake {int_field} must be a positive integer"
+        user_upn = sync_config.get("user_upn")
+        if user_upn is not None and (
+            not isinstance(user_upn, str) or "@" not in user_upn or len(user_upn) > 256
+        ):
+            return False, "OneLake user_upn must be an email address"
 
     elif provider == "motherduck":
         token = sync_config.get("token", "")
@@ -528,16 +579,87 @@ def validate_sync_config(sync_config: dict, provider: str) -> tuple[bool, Option
     return True, None
 
 
-def set_sync_config(sync_config: dict) -> None:
+def set_sync_config(provider: str, sync_config: dict[str, Any]) -> None:
     """
-    Set provider-specific sync configuration.
+    Set one provider's sync configuration, preserving other providers.
+
+    A legacy flat layout is first nested under the configured sync_provider so
+    no existing settings are lost, then the given provider's entry is replaced.
 
     Args:
-        sync_config: Dictionary of provider-specific settings
+        provider: Provider name from VALID_SYNC_PROVIDERS
+        sync_config: Dictionary of that provider's settings
+    """
+    if provider not in VALID_SYNC_PROVIDERS:
+        raise ValueError(f"Invalid sync provider: {provider}. Must be one of {VALID_SYNC_PROVIDERS}")
+
+    config = load_config()
+    current = config.get("sync_config", {})
+    if current and not _is_nested_sync_config(current):
+        legacy_provider = config.get("sync_provider", "none")
+        current = {legacy_provider: current} if legacy_provider != provider else {}
+    config["sync_config"] = {**current, provider: sync_config}
+    save_config(config)
+
+
+def get_sync_providers() -> list[str]:
+    """
+    Get the list of active sync providers.
+
+    Returns the explicit "sync_providers" list (invalid entries dropped) when
+    present, else falls back to the singular sync_provider ([] when "none").
     """
     config = load_config()
-    config["sync_config"] = sync_config
+    providers = config.get("sync_providers")
+    if isinstance(providers, list):
+        return [p for p in providers if p in VALID_SYNC_PROVIDERS and p != "none"]
+    single = config.get("sync_provider", "none")
+    return [single] if single in VALID_SYNC_PROVIDERS and single != "none" else []
+
+
+def set_sync_providers(providers: list[str]) -> None:
+    """
+    Set the list of active sync providers.
+
+    Args:
+        providers: Provider names; each must be a valid provider, "none" excluded
+
+    Raises:
+        ValueError: If any entry is invalid
+    """
+    for provider in providers:
+        if provider not in VALID_SYNC_PROVIDERS or provider == "none":
+            raise ValueError(f"Invalid sync provider: {provider}")
+    config = load_config()
+    config["sync_providers"] = providers
     save_config(config)
+
+
+def get_device_accounts() -> dict[str, dict[str, str]]:
+    """
+    Map device_id -> account metadata ({email, organization, subscription}).
+
+    Collects the top-level "account" block (attributed to the main device_id)
+    and each extra_source's "account" block. Devices without an account block
+    are omitted.
+    """
+    config = load_config()
+    accounts: dict[str, dict[str, str]] = {}
+
+    main_id = config.get("device_id")
+    main_account = config.get("account")
+    if main_id and isinstance(main_account, dict):
+        accounts[main_id] = main_account
+
+    for entry in config.get("extra_sources", []):
+        if not isinstance(entry, dict):
+            continue
+        device_id = entry.get("device_id", "")
+        account = entry.get("account")
+        if validate_device_id(device_id) and isinstance(account, dict):
+            accounts[device_id] = account
+
+    return accounts
 
 
 def initialize_device_info() -> tuple[str, str, str]:

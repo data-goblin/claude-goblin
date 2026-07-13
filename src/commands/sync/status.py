@@ -65,7 +65,7 @@ def sync_status_command():
     device_id = user_config.get_device_id()
     device_name = user_config.get_device_name()
     device_type = user_config.get_device_type_config()
-    sync_config = user_config.get_sync_config()
+    sync_config = user_config.get_sync_config(sync_provider)
 
     # Build status table
     table = Table(

@@ -57,7 +57,7 @@ def get_token_from_keychain(service: str, account: str) -> str:
 
 
 def get_quack_token() -> str:
-    config = get_sync_config()
+    config = get_sync_config("quack")
     source = config.get("token_source", "keychain")
 
     if source == "keychain":
@@ -97,7 +97,7 @@ def _require_duckdb():
 
 
 def _get_remote_params() -> tuple[str, int, bool]:
-    config = get_sync_config()
+    config = get_sync_config("quack")
     host = config.get("host", "")
     if not host:
         raise RuntimeError("Quack remote host not configured. Run: ccg sync setup --provider quack")

@@ -421,7 +421,7 @@ def setup_sync_command(
 
     user_config.set_storage_format(selected_storage)
     user_config.set_sync_provider(selected_provider)
-    user_config.set_sync_config(sync_config)
+    user_config.set_sync_config(selected_provider, sync_config)
 
     # Success message
     console.print()
