@@ -3,7 +3,7 @@ import platform
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional
+
 #endregion
 
 #region Constants
@@ -34,7 +34,7 @@ def open_file(file_path: Path) -> None:
         pass  # Silently fail if opening doesn't work
 
 
-def get_sound_command(sound_name: str) -> Optional[str]:
+def get_sound_command(sound_name: str) -> str | None:
     """
     Get the command to play a sound (cross-platform).
 

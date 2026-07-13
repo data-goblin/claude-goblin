@@ -15,9 +15,10 @@ Inspired by: awesome-hooks/bundler-standard.ts by boxabirds
 """
 
 #region Imports
-import sys
 import json
 import re
+import sys
+
 #endregion
 
 
@@ -125,13 +126,13 @@ def pre_tool_use(event: dict) -> None:
         # Print error to stderr
         print(f"❌ Blocked: {package_manager} is not recommended in this project.", file=sys.stderr)
         print(f"✅ Please use uv instead: {uv_equivalent.strip()}", file=sys.stderr)
-        print(f"", file=sys.stderr)
+        print("", file=sys.stderr)
         print(f"Run this command instead: {uv_equivalent.strip()}", file=sys.stderr)
-        print(f"", file=sys.stderr)
-        print(f"Why uv?", file=sys.stderr)
-        print(f"  • 10-100x faster than pip", file=sys.stderr)
-        print(f"  • Better dependency resolution", file=sys.stderr)
-        print(f"  • Modern Python package installer by Astral (creators of ruff)", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Why uv?", file=sys.stderr)
+        print("  • 10-100x faster than pip", file=sys.stderr)
+        print("  • Better dependency resolution", file=sys.stderr)
+        print("  • Modern Python package installer by Astral (creators of ruff)", file=sys.stderr)
 
         # Exit code 2 = blocked with feedback to Claude
         sys.exit(2)

@@ -9,7 +9,6 @@ import typer
 
 from src.commands.remove import hooks, usage
 
-
 # Create remove sub-app
 app = typer.Typer(
     name="remove",

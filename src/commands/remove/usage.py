@@ -67,9 +67,9 @@ def remove_usage_command(
 
         # Delete the database file
         db_path.unlink()
-        console.print(f"\n[green]Successfully removed historical usage database[/green]")
+        console.print("\n[green]Successfully removed historical usage database[/green]")
         console.print(f"[dim]Deleted: {db_path}[/dim]")
-        console.print(f"\n[dim]To restore: ccg restore usage[/dim]")
+        console.print("\n[dim]To restore: ccg restore usage[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error removing database: {e}[/red]")

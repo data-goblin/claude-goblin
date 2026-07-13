@@ -9,10 +9,9 @@ Handles:
 #region Imports
 import logging
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
-from typing import Generator, Optional
 
 try:
     import duckdb
@@ -275,9 +274,9 @@ class MigrationError(Exception):
 def migrate_sqlite_to_duckdb(
     sqlite_path: Path,
     duckdb_path: Path,
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> dict:
     """
     Migrate data from SQLite to DuckDB.
@@ -477,9 +476,9 @@ def migrate_sqlite_to_duckdb(
 def migrate_duckdb_to_sqlite(
     duckdb_path: Path,
     sqlite_path: Path,
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> dict:
     """
     Migrate data from DuckDB to SQLite.

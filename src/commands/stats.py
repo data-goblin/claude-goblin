@@ -13,6 +13,7 @@ from src.storage.api import (
     get_text_analysis_stats,
     save_limits_snapshot,
 )
+
 #endregion
 
 
@@ -124,7 +125,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
         plan_cost = num_months * 200.0  # $200/month Max Plan
         savings = db_stats['total_cost'] - plan_cost
 
-        console.print(f"\n[bold]Cost Analysis[/bold]")
+        console.print("\n[bold]Cost Analysis[/bold]")
         console.print(f"  Est. Cost (if using API): ${db_stats['total_cost']:>10,.2f}")
         console.print(f"  Plan Cost:           ${plan_cost:>14,.2f} ({num_months} month{'s' if num_months > 1 else ''} @ $200/mo)")
 
@@ -133,10 +134,10 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
         else:
             overpaid = abs(savings)
             console.print(f"  Plan Costs More:     ${overpaid:>14,.2f}")
-            console.print(f"  [dim]Light usage - API would be cheaper[/dim]")
+            console.print("  [dim]Light usage - API would be cheaper[/dim]")
 
     # Averages
-    console.print(f"\n[bold]Averages[/bold]")
+    console.print("\n[bold]Averages[/bold]")
     console.print(f"  Tokens per Session:  {db_stats['avg_tokens_per_session']:>15,}")
     console.print(f"  Tokens per Response: {db_stats['avg_tokens_per_response']:>15,}")
     if db_stats['total_cost'] > 0:
@@ -147,7 +148,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
     text_stats = get_text_analysis_stats()
 
     if text_stats["avg_user_prompt_chars"] > 0:
-        console.print(f"\n[bold]Text Analysis[/bold]")
+        console.print("\n[bold]Text Analysis[/bold]")
         console.print(f"  Avg Prompt Length:   {text_stats['avg_user_prompt_chars']:>15,} chars")
         console.print(f"  User Swears:         {text_stats['user_swears']:>15,}")
         console.print(f"  Claude Swears:       {text_stats['assistant_swears']:>15,}")
@@ -158,7 +159,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
 
     # Tokens by Model
     if db_stats["tokens_by_model"]:
-        console.print(f"\n[bold]Usage by Model[/bold]")
+        console.print("\n[bold]Usage by Model[/bold]")
         for model, tokens in db_stats["tokens_by_model"].items():
             percentage = (tokens / db_stats['total_tokens'] * 100) if db_stats['total_tokens'] > 0 else 0
             cost = db_stats["cost_by_model"].get(model, 0.0)
@@ -172,7 +173,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
     if db_stats["total_records"] > 0:
         console.print(f"[dim]Detail records: {db_stats['total_records']:,} (full analytics mode)[/dim]")
     else:
-        console.print(f"[dim]Storage mode: aggregate (daily totals only)[/dim]")
+        console.print("[dim]Storage mode: aggregate (daily totals only)[/dim]")
 
 
 def run_remote(console: Console) -> None:
@@ -214,7 +215,7 @@ def run_remote(console: Console) -> None:
             plan_cost = num_months * 200.0
             savings = db_stats['total_cost'] - plan_cost
 
-            console.print(f"\n[bold]Cost Analysis[/bold]")
+            console.print("\n[bold]Cost Analysis[/bold]")
             console.print(f"  Est. Cost (if using API): ${db_stats['total_cost']:>10,.2f}")
             console.print(f"  Plan Cost:           ${plan_cost:>14,.2f} ({num_months} month{'s' if num_months > 1 else ''} @ $200/mo)")
             if savings > 0:
@@ -222,7 +223,7 @@ def run_remote(console: Console) -> None:
             else:
                 console.print(f"  Plan Costs More:     ${abs(savings):>14,.2f}")
 
-        console.print(f"\n[bold]Averages[/bold]")
+        console.print("\n[bold]Averages[/bold]")
         console.print(f"  Tokens per Session:  {db_stats['avg_tokens_per_session']:>15,}")
         console.print(f"  Tokens per Response: {db_stats['avg_tokens_per_response']:>15,}")
         if db_stats['total_cost'] > 0:
@@ -230,7 +231,7 @@ def run_remote(console: Console) -> None:
             console.print(f"  Cost per Response:   ${db_stats['avg_cost_per_response']:>14,.4f}")
 
         if db_stats["tokens_by_model"]:
-            console.print(f"\n[bold]Usage by Model[/bold]")
+            console.print("\n[bold]Usage by Model[/bold]")
             for model, tokens in db_stats["tokens_by_model"].items():
                 pct = (tokens / db_stats['total_tokens'] * 100) if db_stats['total_tokens'] > 0 else 0
                 cost = db_stats["cost_by_model"].get(model, 0.0)
@@ -239,7 +240,7 @@ def run_remote(console: Console) -> None:
                 else:
                     console.print(f"  {model:30s} {tokens:>15,} ({pct:5.1f}%)")
 
-        console.print(f"\n[dim]Source: remote (cross-device aggregate)[/dim]")
+        console.print("\n[dim]Source: remote (cross-device aggregate)[/dim]")
 
     except ImportError:
         console.print("[red]DuckDB not installed. Install with: uv pip install claude-goblin[duckdb][/red]")

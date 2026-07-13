@@ -1,8 +1,8 @@
 #region Imports
-import sys
-import time
 import re
+import sys
 from typing import Literal
+
 from rich.console import Console
 
 try:
@@ -79,7 +79,7 @@ def run(console: Console, limit_type: Literal["session", "weekly", "opus"]) -> N
         """
 
         def __init__(self, limit_type: str):
-            super(ClaudeStatusApp, self).__init__("CC: --", quit_button="Quit")
+            super().__init__("CC: --", quit_button="Quit")
             self.limit_type = limit_type
             self.update_interval = 300  # 5 minutes in seconds
 

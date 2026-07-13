@@ -9,12 +9,11 @@ import shutil
 import stat
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 console = Console()
 
@@ -103,7 +102,7 @@ def get_container_claude_dir() -> Path:
     return Path.home() / ".claude"
 
 
-def get_host_sync_dir() -> Optional[Path]:
+def get_host_sync_dir() -> Path | None:
     """
     Get the host sync directory if mounted.
 
@@ -219,7 +218,7 @@ def sync_jsonl_to_host(container_dir: Path, host_dir: Path, dry_run: bool = Fals
             # Read container file (handle individual line errors)
             container_records = []
             skipped_lines = 0
-            with open(jsonl_file, "r", encoding="utf-8") as f:
+            with open(jsonl_file, encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
                     if line.strip():
                         try:
@@ -238,7 +237,7 @@ def sync_jsonl_to_host(container_dir: Path, host_dir: Path, dry_run: bool = Fals
             if host_file.exists():
                 # Merge with existing host file
                 host_records = []
-                with open(host_file, "r", encoding="utf-8") as f:
+                with open(host_file, encoding="utf-8") as f:
                     for line in f:
                         if line.strip():
                             try:
@@ -435,7 +434,7 @@ def sync_command(
         "--force", "-f",
         help="Force sync even if not in container",
     ),
-    target: Optional[str] = typer.Option(
+    target: str | None = typer.Option(
         None,
         "--target", "-t",
         help="Target directory for sync (overrides auto-detection)",
@@ -473,7 +472,7 @@ def sync_command(
         raise typer.Exit(1)
 
     if direction == "push":
-        console.print(f"[cyan]Syncing:[/cyan] Container → Host")
+        console.print("[cyan]Syncing:[/cyan] Container → Host")
         console.print(f"  From: {claude_dir}")
         console.print(f"  To:   {host_dir}")
 
@@ -510,7 +509,7 @@ def sync_command(
             console.print("[green]Sync complete![/green]")
 
     elif direction == "pull":
-        console.print(f"[cyan]Syncing:[/cyan] Host → Container")
+        console.print("[cyan]Syncing:[/cyan] Host → Container")
         console.print(f"  From: {host_dir}")
         console.print(f"  To:   {claude_dir}")
         console.print()

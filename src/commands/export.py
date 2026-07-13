@@ -8,17 +8,18 @@ from rich.console import Console
 from src.aggregation.daily_stats import aggregate_all
 from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
-from src.config.user_config import get_tracking_mode, get_storage_mode
+from src.config.user_config import get_storage_mode, get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage import api
 from src.storage.api import (
-    load_historical_records,
+    get_database_stats,
     get_limits_data,
+    load_historical_records,
     save_limits_snapshot,
     save_snapshot,
-    get_database_stats,
 )
 from src.utils._system import open_file
+
 #endregion
 
 
@@ -43,7 +44,7 @@ def run(console: Console) -> None:
         --year YYYY or -y YYYY: Filter by year (default: current year)
         -o FILE or --output FILE: Specify output file path
     """
-    from src.visualization.export import export_heatmap_svg, export_heatmap_png
+    from src.visualization.export import export_heatmap_png, export_heatmap_svg
 
     # Check for --fast flag
     fast_mode = "--fast" in sys.argv
@@ -156,7 +157,7 @@ def run(console: Console) -> None:
                         )
                     elif limits and "error" in limits:
                         console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
-                        console.print(f"[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
+                        console.print("[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
         # Load data from database
         with console.status(f"[bold #ff8800]Loading data for {year_filter}...", spinner="dots", spinner_style="#ff8800"):

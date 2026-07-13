@@ -7,8 +7,8 @@ for running Claude Code with --dangerously-skip-permissions in an isolated conta
 import shutil
 import subprocess
 from pathlib import Path
-from rich.console import Console
 
+from rich.console import Console
 
 # region Templates
 

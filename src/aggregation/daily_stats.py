@@ -2,9 +2,9 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import DefaultDict
 
 from src.models.usage_record import UsageRecord
+
 #endregion
 
 
@@ -80,7 +80,7 @@ def aggregate_by_day(records: list[UsageRecord]) -> dict[str, DailyStats]:
         return {}
 
     # Group records by date
-    daily_data: DefaultDict[str, list[UsageRecord]] = defaultdict(list)
+    daily_data: defaultdict[str, list[UsageRecord]] = defaultdict(list)
     for record in records:
         daily_data[record.date_key].append(record)
 

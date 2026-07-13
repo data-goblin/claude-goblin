@@ -1,11 +1,11 @@
 #region Imports
 import platform
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 
 from src.utils._system import get_sound_command
+
 #endregion
 
 
@@ -202,7 +202,7 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
     if stop_removed or notification_removed or precompact_removed:
         console.print("[cyan]Replaced existing audio notification hooks[/cyan]")
 
-    console.print(f"[green]✓ Successfully configured audio notification hooks[/green]")
+    console.print("[green]✓ Successfully configured audio notification hooks[/green]")
     console.print("\n[bold]What this does:[/bold]")
     console.print(f"  • Completion sound ({completion_sound}): Plays when Claude finishes responding")
     console.print(f"  • Permission sound ({permission_sound}): Plays when Claude requests permission")

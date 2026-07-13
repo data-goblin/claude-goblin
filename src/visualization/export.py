@@ -1,9 +1,9 @@
 #region Imports
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from src.aggregation.daily_stats import AggregatedStats, DailyStats
+
 #endregion
 
 
@@ -36,8 +36,8 @@ CELL_TOTAL = CELL_SIZE + CELL_GAP
 def export_heatmap_svg(
     stats: AggregatedStats,
     output_path: Path,
-    title: Optional[str] = None,
-    year: Optional[int] = None
+    title: str | None = None,
+    year: int | None = None
 ) -> None:
     """
     Export the activity heatmap as an SVG file.
@@ -59,8 +59,8 @@ def export_heatmap_svg(
 
     # Build weeks structure
     jan1_day = (start_date.weekday() + 1) % 7
-    weeks: list[list[tuple[Optional[DailyStats], Optional[datetime.date]]]] = []
-    current_week: list[tuple[Optional[DailyStats], Optional[datetime.date]]] = []
+    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]] = []
+    current_week: list[tuple[DailyStats | None, datetime.date | None]] = []
 
     # Pad first week with None
     for _ in range(jan1_day):
@@ -106,9 +106,9 @@ def export_heatmap_svg(
 def export_heatmap_png(
     stats: AggregatedStats,
     output_path: Path,
-    limits_data: Optional[dict[str, dict[str, int]]] = None,
-    title: Optional[str] = None,
-    year: Optional[int] = None,
+    limits_data: dict[str, dict[str, int]] | None = None,
+    title: str | None = None,
+    year: int | None = None,
     tracking_mode: str = "both"
 ) -> None:
     """
@@ -145,8 +145,8 @@ def export_heatmap_png(
     end_date = datetime(display_year, 12, 31).date()
 
     jan1_day = (start_date.weekday() + 1) % 7
-    weeks: list[list[tuple[Optional[DailyStats], Optional[datetime.date]]]] = []
-    current_week: list[tuple[Optional[DailyStats], Optional[datetime.date]]] = []
+    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]] = []
+    current_week: list[tuple[DailyStats | None, datetime.date | None]] = []
 
     for _ in range(jan1_day):
         current_week.append((None, None))
@@ -442,7 +442,7 @@ def export_heatmap_png(
 
 
 def _generate_svg(
-    weeks: list[list[tuple[Optional[DailyStats], Optional[datetime.date]]]],
+    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]],
     width: int,
     height: int,
     max_tokens: int,
@@ -588,7 +588,7 @@ def _get_limits_color(
 
 
 def _get_color(
-    day_stats: Optional[DailyStats],
+    day_stats: DailyStats | None,
     max_tokens: int,
     date: datetime.date,
     today: datetime.date

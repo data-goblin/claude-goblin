@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.config import user_config
+
 #endregion
 
 
@@ -84,7 +85,7 @@ def share_folder_with_device(device_id: str, folder_id: str = "claude-usage") ->
         )
 
         if result.returncode == 0:
-            return True, f"Folder shared with device"
+            return True, "Folder shared with device"
         else:
             if "already" in result.stderr.lower():
                 return True, "Folder already shared with device"
@@ -133,7 +134,7 @@ def add_device_command(
     # Check that sync is configured with Syncthing
     sync_provider = user_config.get_sync_provider()
     if sync_provider != "syncthing":
-        console.print(f"[red]Error: add-device is only for Syncthing sync[/red]")
+        console.print("[red]Error: add-device is only for Syncthing sync[/red]")
         console.print(f"[dim]Current provider: {sync_provider}[/dim]")
         console.print("[yellow]Run 'ccg sync setup' and select Syncthing first[/yellow]")
         raise typer.Exit(1)
@@ -179,7 +180,7 @@ def add_device_command(
     console.print(Panel.fit(
         "[bold green]Device configured![/bold green]\n\n"
         "The remote device must also add your device ID:\n"
-        f"  [dim]ccg sync add-device YOUR-DEVICE-ID[/dim]\n\n"
+        "  [dim]ccg sync add-device YOUR-DEVICE-ID[/dim]\n\n"
         "Once both devices are connected, usage data will sync\n"
         "when both devices are online.",
         border_style="green",

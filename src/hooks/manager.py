@@ -3,18 +3,18 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 
-from src.hooks import usage, audio, png, audio_tts, awesome_hooks
+from src.hooks import audio, audio_tts, awesome_hooks, png, usage
+
 #endregion
 
 
 #region Functions
 
 
-def setup_hooks(console: Console, hook_type: Optional[str] = None, user: bool = False) -> None:
+def setup_hooks(console: Console, hook_type: str | None = None, user: bool = False) -> None:
     """
     Set up Claude Code hooks for automation.
 
@@ -56,7 +56,7 @@ def setup_hooks(console: Console, hook_type: Optional[str] = None, user: bool = 
 
         # Read existing settings
         if settings_path.exists():
-            with open(settings_path, "r") as f:
+            with open(settings_path) as f:
                 settings = json.load(f)
         else:
             settings = {}
@@ -100,7 +100,7 @@ def setup_hooks(console: Console, hook_type: Optional[str] = None, user: bool = 
         traceback.print_exc()
 
 
-def remove_hooks(console: Console, hook_type: Optional[str] = None, user: bool = False) -> None:
+def remove_hooks(console: Console, hook_type: str | None = None, user: bool = False) -> None:
     """
     Remove Claude Code hooks configured by this tool.
 
@@ -124,7 +124,7 @@ def remove_hooks(console: Console, hook_type: Optional[str] = None, user: bool =
 
     try:
         # Read existing settings
-        with open(settings_path, "r") as f:
+        with open(settings_path) as f:
             settings = json.load(f)
 
         # Create backup before modifying

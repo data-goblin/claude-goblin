@@ -8,7 +8,6 @@ import typer
 
 from src.commands.update import usage
 
-
 # Create update sub-app
 app = typer.Typer(
     name="update",

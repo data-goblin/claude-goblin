@@ -8,7 +8,6 @@ import typer
 
 from src.commands.restore import usage
 
-
 # Create restore sub-app
 app = typer.Typer(
     name="restore",

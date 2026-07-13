@@ -6,13 +6,10 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.layout import Layout
-from rich.progress import Progress, BarColumn, TextColumn
-from rich.spinner import Spinner
 
 from src.aggregation.daily_stats import AggregatedStats
 from src.models.usage_record import UsageRecord
-from src.storage.snapshot_db import get_limits_data
+
 #endregion
 
 
@@ -143,7 +140,7 @@ def _render_simple_dashboard(stats: AggregatedStats, records: list[UsageRecord],
             model_tokens[record.model] = model_tokens.get(record.model, 0) + record.token_usage.total_tokens
 
     if model_tokens:
-        console.print(f"[bold]Models:[/bold]")
+        console.print("[bold]Models:[/bold]")
         total = sum(model_tokens.values())
         for model, tokens in sorted(model_tokens.items(), key=lambda x: x[1], reverse=True)[:5]:
             name = model.replace("claude-", "")
@@ -158,7 +155,7 @@ def _render_simple_dashboard(stats: AggregatedStats, records: list[UsageRecord],
             folder_tokens[record.folder] = folder_tokens.get(record.folder, 0) + record.token_usage.total_tokens
 
     if folder_tokens:
-        console.print(f"[bold]Projects:[/bold]")
+        console.print("[bold]Projects:[/bold]")
         total = sum(folder_tokens.values())
         for folder, tokens in sorted(folder_tokens.items(), key=lambda x: x[1], reverse=True)[:5]:
             parts = folder.split("/")
@@ -170,7 +167,7 @@ def _render_simple_dashboard(stats: AggregatedStats, records: list[UsageRecord],
 
     # Footer
     if fast_mode:
-        console.print(f"[bold red]Fast mode: data from cache[/bold red]")
+        console.print("[bold red]Fast mode: data from cache[/bold red]")
     if date_range:
         console.print(f"[{DIM}]Data: {date_range}[/{DIM}]")
     console.print(f"[{DIM}]Tip: ccg export --open for heatmap[/{DIM}]")

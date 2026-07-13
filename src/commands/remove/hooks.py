@@ -3,7 +3,7 @@ Remove hooks command.
 
 Removes Claude Code hooks configured by this tool.
 """
-from typing import Optional
+
 import typer
 from rich.console import Console
 
@@ -11,7 +11,7 @@ from src.hooks.manager import remove_hooks as _remove_hooks
 
 
 def remove_hooks_command(
-    hook_type: Optional[str] = typer.Argument(
+    hook_type: str | None = typer.Argument(
         None,
         help="Hook type to remove: usage, audio, audio-tts, png, bundler-standard, file-name-consistency, uv-standard, or leave empty for all"
     ),

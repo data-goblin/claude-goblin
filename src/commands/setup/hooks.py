@@ -3,7 +3,7 @@ Setup hooks command.
 
 Sets up Claude Code hooks for automation.
 """
-from typing import Optional
+
 import typer
 from rich.console import Console
 
@@ -11,7 +11,7 @@ from src.hooks.manager import setup_hooks as _setup_hooks
 
 
 def setup_hooks_command(
-    hook_type: Optional[str] = typer.Argument(
+    hook_type: str | None = typer.Argument(
         None,
         help="Hook type: usage, audio, audio-tts, png, bundler-standard, file-name-consistency, or uv-standard"
     ),

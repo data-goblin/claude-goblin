@@ -3,16 +3,14 @@ Setup skills command for Claude Goblin.
 
 Installs bundled skills to ~/.claude/skills/ for enhanced Claude Code capabilities.
 """
-from pathlib import Path
-from typing import Optional
 import shutil
+from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from src.skills import AVAILABLE_SKILLS, get_skill_path
-
 
 console = Console()
 
@@ -21,7 +19,7 @@ CLAUDE_SKILLS_DIR = Path.home() / ".claude" / "skills"
 
 
 def setup_skills_command(
-    skill_name: Optional[str] = typer.Argument(
+    skill_name: str | None = typer.Argument(
         None,
         help="Name of skill to install (or 'all' for all skills)",
     ),

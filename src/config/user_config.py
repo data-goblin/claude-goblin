@@ -4,7 +4,8 @@ import platform
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 #endregion
 
 
@@ -45,9 +46,9 @@ def load_config() -> dict:
         return get_default_config()
 
     try:
-        with open(CONFIG_PATH, "r") as f:
+        with open(CONFIG_PATH) as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return get_default_config()
 
 
@@ -267,7 +268,7 @@ def set_sync_provider(provider: str) -> None:
     save_config(config)
 
 
-def get_device_id() -> Optional[str]:
+def get_device_id() -> str | None:
     """
     Get the current device identifier.
 
@@ -360,7 +361,7 @@ def set_device_id(device_id: str) -> None:
     save_config(config)
 
 
-def get_device_name() -> Optional[str]:
+def get_device_name() -> str | None:
     """
     Get the human-readable device name.
 
@@ -392,7 +393,7 @@ def set_device_name(name: str) -> None:
     save_config(config)
 
 
-def get_device_type_config() -> Optional[str]:
+def get_device_type_config() -> str | None:
     """
     Get the stored device type from config.
 
@@ -503,7 +504,7 @@ def get_sync_config(provider: str) -> dict[str, Any]:
     return {}
 
 
-def validate_sync_config(sync_config: dict, provider: str) -> tuple[bool, Optional[str]]:
+def validate_sync_config(sync_config: dict, provider: str) -> tuple[bool, str | None]:
     """
     Validate provider-specific sync configuration.
 

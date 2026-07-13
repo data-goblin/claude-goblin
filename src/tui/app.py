@@ -8,15 +8,14 @@ and managing Claude Code utilities.
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 try:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
-    from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-    from textual.widgets import Header, Footer, Static, Label, Button, DataTable, ProgressBar
+    from textual.containers import Container, Horizontal, ScrollableContainer, Vertical
     from textual.reactive import reactive
+    from textual.widgets import Button, DataTable, Footer, Header, Label, ProgressBar, Static
 
     TEXTUAL_AVAILABLE = True
 except ImportError:

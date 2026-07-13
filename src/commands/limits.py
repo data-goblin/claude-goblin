@@ -1,12 +1,14 @@
 #region Imports
-import subprocess
-import re
 import os
 import pty
+import re
 import select
-import time
 import shutil
+import subprocess
+import time
+
 from rich.console import Console
+
 #endregion
 
 
@@ -167,7 +169,7 @@ def capture_limits() -> dict | None:
             "error": "claude_not_found",
             "message": "Claude Code CLI not found. Please install Claude Code."
         }
-    except Exception as e:
+    except Exception:
         # Silent failure for other errors (network issues, parsing errors, etc.)
         # Returning None allows the app to continue without limits data
         return None

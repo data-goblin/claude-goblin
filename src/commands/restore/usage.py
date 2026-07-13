@@ -3,7 +3,6 @@ Restore usage command.
 
 Restores usage database from backup file.
 """
-import typer
 from rich.console import Console
 
 from src.commands import restore_backup as _restore_backup_module

@@ -6,6 +6,7 @@ from rich.console import Console
 
 from src.config.user_config import get_storage_mode, set_storage_mode
 from src.storage import api
+
 #endregion
 
 
@@ -36,9 +37,9 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
     console.print("     • Good for: Detailed analysis, per-project breakdowns\n")
 
     if current_mode == "full":
-        console.print(f"[dim]Current mode: Full Analytics[/dim]")
+        console.print("[dim]Current mode: Full Analytics[/dim]")
     else:
-        console.print(f"[dim]Current mode: Aggregate[/dim]")
+        console.print("[dim]Current mode: Aggregate[/dim]")
 
     console.print("[dim]Enter 1 or 2 (or press Enter for default):[/dim] ", end="")
 
@@ -86,7 +87,7 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
                 if db_path.exists():
                     shutil.copy2(db_path, backup_path)
                     console.print(f"[green]✓ Backup created: {backup_path}[/green]")
-                    console.print(f"[dim]To restore: ccg restore usage[/dim]")
+                    console.print("[dim]To restore: ccg restore usage[/dim]")
                 else:
                     console.print("[yellow]No database file found to backup[/yellow]")
         except (EOFError, KeyboardInterrupt):
@@ -109,7 +110,7 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
     set_storage_mode(storage_mode)
 
     if hook_exists:
-        console.print(f"\n[yellow]Usage tracking hook already configured![/yellow]")
+        console.print("\n[yellow]Usage tracking hook already configured![/yellow]")
         console.print(f"[cyan]Storage mode updated to: {storage_mode}[/cyan]")
         return
 

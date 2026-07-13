@@ -10,12 +10,13 @@ from pathlib import Path
 from typing import Optional
 
 from src.config.user_config import (
-    get_storage_format,
     get_device_id,
     get_device_name,
     get_device_type_config,
+    get_storage_format,
     initialize_device_info,
 )
+
 #endregion
 
 
@@ -28,8 +29,8 @@ DEFAULT_USAGE_DIR = Path.home() / ".claude" / "usage"
 
 
 def get_db_path(
-    device_id: Optional[str] = None,
-    storage_format: Optional[str] = None,
+    device_id: str | None = None,
+    storage_format: str | None = None,
 ) -> Path:
     """
     Get the database path based on storage format and device ID.

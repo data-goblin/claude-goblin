@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from rich.console import Console
+
 #endregion
 
 
@@ -56,7 +57,7 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
     if png_hook_removed:
         console.print("[cyan]Replaced existing PNG auto-update hook[/cyan]")
 
-    console.print(f"[green]✓ Successfully configured PNG auto-update hook[/green]")
+    console.print("[green]✓ Successfully configured PNG auto-update hook[/green]")
     console.print("\n[bold]What this does:[/bold]")
     console.print("  • Exports PNG after each Claude response completes")
     console.print(f"  • Overwrites: {output_path}")

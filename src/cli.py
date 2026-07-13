@@ -3,25 +3,26 @@ Claude Goblin CLI - Command-line interface using typer.
 
 Main entry point for all claude-goblin commands.
 """
-from typing import Optional
+
 import typer
 from rich.console import Console
 
 from src.commands import (
-    usage,
-    stats,
     export,
-    help as help_cmd,
     limits,
+    stats,
     status_bar,
+    usage,
 )
-from src.commands.setup import app as setup_app
-from src.commands.remove import app as remove_app
-from src.commands.update import app as update_app
-from src.commands.restore import app as restore_app
-from src.commands.sync import app as sync_app
+from src.commands import (
+    help as help_cmd,
+)
 from src.commands.container import app as container_app
-
+from src.commands.remove import app as remove_app
+from src.commands.restore import app as restore_app
+from src.commands.setup import app as setup_app
+from src.commands.sync import app as sync_app
+from src.commands.update import app as update_app
 
 # Version
 __version__ = "0.2.0"
@@ -149,9 +150,9 @@ def export_command(
     svg: bool = typer.Option(False, "--svg", help="Export as SVG instead of PNG"),
     open_file: bool = typer.Option(False, "--open", help="Open file after export"),
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
-    year: Optional[int] = typer.Option(None, "--year", "-y", help="Filter by year (default: current year)"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path"),
-    show: Optional[str] = typer.Option("tokens", "--show", "-s", help="What to show: tokens, limits, or both (default: tokens)"),
+    year: int | None = typer.Option(None, "--year", "-y", help="Filter by year (default: current year)"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
+    show: str | None = typer.Option("tokens", "--show", "-s", help="What to show: tokens, limits, or both (default: tokens)"),
 ):
     """
     Export yearly heatmap as PNG or SVG.

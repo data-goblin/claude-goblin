@@ -9,8 +9,7 @@ Provides subcommands for setting up various integrations:
 """
 import typer
 
-from src.commands.setup import hooks, container, skills, commands
-
+from src.commands.setup import commands, container, hooks, skills
 
 # Create setup sub-app
 app = typer.Typer(

@@ -11,9 +11,9 @@ Each skill directory contains:
 - assets/ (optional): Templates and resources
 """
 
-from pathlib import Path
-import shutil
 import re
+import shutil
+from pathlib import Path
 
 SKILLS_DIR = Path(__file__).parent
 

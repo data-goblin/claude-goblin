@@ -1,7 +1,6 @@
 #region Imports
 from datetime import datetime, timedelta
-from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Optional
+from pathlib import PurePosixPath, PureWindowsPath
 
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -9,6 +8,7 @@ from rich.table import Table
 from rich.text import Text
 
 from src.aggregation.daily_stats import AggregatedStats, DailyStats
+
 #endregion
 
 
@@ -124,13 +124,13 @@ def _create_header(overall: DailyStats, daily_stats: dict[str, DailyStats]) -> P
     header_text.append("Claude Code Usage Tracker", style="bold cyan")
     header_text.append(f"  ({date_range_str})", style="dim")
     header_text.append("\n")
-    header_text.append(f"Total Tokens: ", style="white")
+    header_text.append("Total Tokens: ", style="white")
     header_text.append(f"{overall.total_tokens:,}", style="bold yellow")
     header_text.append(" | ", style="dim")
-    header_text.append(f"Prompts: ", style="white")
+    header_text.append("Prompts: ", style="white")
     header_text.append(f"{overall.total_prompts:,}", style="bold yellow")
     header_text.append(" | ", style="dim")
-    header_text.append(f"Sessions: ", style="white")
+    header_text.append("Sessions: ", style="white")
     header_text.append(f"{overall.total_sessions:,}", style="bold yellow")
     header_text.append("\n")
     header_text.append("Note: Claude Code keeps ~30 days of history (rolling window)", style="dim italic")
@@ -164,8 +164,8 @@ def _create_activity_graph(daily_stats: dict[str, DailyStats]) -> Panel:
     # We want 0=Sunday, 6=Saturday
     jan1_day = (start_date.weekday() + 1) % 7  # Convert to Sunday=0
 
-    weeks: list[list[tuple[Optional[DailyStats], Optional[datetime.date]]]] = []
-    current_week: list[tuple[Optional[DailyStats], Optional[datetime.date]]] = []
+    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]] = []
+    current_week: list[tuple[DailyStats | None, datetime.date | None]] = []
 
     # Pad the first week with None entries before Jan 1
     for i in range(jan1_day):
@@ -255,7 +255,7 @@ def _create_activity_graph(daily_stats: dict[str, DailyStats]) -> Panel:
 
 
 def _create_month_labels_github_style(
-    weeks: list[list[tuple[Optional[DailyStats], Optional[datetime.date]]]]
+    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]]
 ) -> list[str]:
     """
     Create month labels for the X-axis in GitHub style.
@@ -293,7 +293,7 @@ def _create_month_labels_github_style(
 
 
 def _create_month_labels(
-    weeks: list[list[tuple[Optional[DailyStats], datetime.date]]],
+    weeks: list[list[tuple[DailyStats | None, datetime.date]]],
     week_dates: list[datetime.date]
 ) -> list[Text]:
     """
@@ -382,7 +382,7 @@ def _create_timeline_view(daily_stats: dict[str, DailyStats]) -> Panel:
 
 
 def _get_intensity_cell(
-    day_stats: Optional[DailyStats], max_tokens: int, date: Optional[datetime.date]
+    day_stats: DailyStats | None, max_tokens: int, date: datetime.date | None
 ) -> Text:
     """
     Get the colored cell for a specific day based on token usage.

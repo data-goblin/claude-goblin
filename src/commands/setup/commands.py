@@ -3,16 +3,14 @@ Setup commands command for Claude Goblin.
 
 Installs bundled slash commands to ~/.claude/commands/ for quick workflow access.
 """
-from pathlib import Path
-from typing import Optional
 import shutil
+from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from src.slash_commands import AVAILABLE_COMMANDS, get_command_path
-
 
 console = Console()
 
@@ -21,7 +19,7 @@ CLAUDE_COMMANDS_DIR = Path.home() / ".claude" / "commands"
 
 
 def setup_commands_command(
-    command_name: Optional[str] = typer.Argument(
+    command_name: str | None = typer.Argument(
         None,
         help="Name of command to install (or 'all' for all commands)",
     ),

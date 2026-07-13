@@ -3,7 +3,7 @@ Setup container command.
 
 Sets up devcontainer for safe Claude Code execution with --dangerously-skip-permissions.
 """
-from typing import Optional
+
 import typer
 from rich.console import Console
 
@@ -15,12 +15,12 @@ def setup_container_command(
         ".",
         help="Target directory (default: current directory)"
     ),
-    name: Optional[str] = typer.Option(
+    name: str | None = typer.Option(
         None,
         "--name", "-n",
         help="Project name (default: directory name)"
     ),
-    domains: Optional[str] = typer.Option(
+    domains: str | None = typer.Option(
         None,
         "--domains", "-d",
         help="Extra domains to whitelist (comma-separated)"

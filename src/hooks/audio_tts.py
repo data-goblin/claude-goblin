@@ -1,11 +1,9 @@
 #region Imports
-import json
-import subprocess
-import sys
 import platform
 from pathlib import Path
 
 from rich.console import Console
+
 #endregion
 
 
@@ -207,7 +205,7 @@ echo "$message" | say -v {voice} &
     if removed_count > 0:
         console.print(f"[cyan]Replaced {removed_count} existing audio notification hook(s)[/cyan]")
 
-    console.print(f"[green]✓ Successfully configured audio TTS hooks[/green]")
+    console.print("[green]✓ Successfully configured audio TTS hooks[/green]")
     console.print("\n[bold]What this does:[/bold]")
     for hook_type in hook_types:
         if hook_type == "Notification":

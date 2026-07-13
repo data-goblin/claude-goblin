@@ -7,20 +7,20 @@ from rich.console import Console
 
 from src.aggregation.daily_stats import aggregate_all
 from src.commands.limits import capture_limits
+from src.commands.update_usage import ingest_token_usage
 from src.config.settings import (
     DEFAULT_REFRESH_INTERVAL,
     get_claude_jsonl_files,
 )
-from src.commands.update_usage import ingest_token_usage
 from src.config.user_config import get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage import api
 from src.storage.api import (
-    get_database_stats,
     load_historical_records,
     save_limits_snapshot,
 )
 from src.visualization.dashboard import render_dashboard
+
 #endregion
 
 
@@ -134,7 +134,7 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
         anonymize: Anonymize project names to project-001, project-002, etc
         force: Force re-parse all files, ignoring incremental cache
     """
-    from src.storage.api import get_latest_limits, get_database_stats
+    from src.storage.api import get_latest_limits
 
     # Check if database exists when using --fast
     if skip_limits and not api.current_db_path().exists():
@@ -226,8 +226,10 @@ def run_remote(console: Console, anon: bool = False) -> None:
     """
     try:
         from src.storage.quack_remote import (
-            load_historical_records as remote_load,
             get_latest_limits as remote_limits,
+        )
+        from src.storage.quack_remote import (
+            load_historical_records as remote_load,
         )
 
         with console.status("[bold #ff8800]Connecting to remote...", spinner="dots", spinner_style="#ff8800"):

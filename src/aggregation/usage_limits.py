@@ -1,9 +1,9 @@
 #region Imports
-from datetime import datetime, timedelta, timezone
-from typing import Optional
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from src.models.usage_record import UsageRecord
+
 #endregion
 
 
@@ -72,13 +72,13 @@ class UsageLimits:
     current_session_tokens: int
     session_limit: int
     session_percentage: float
-    session_reset_time: Optional[datetime]
+    session_reset_time: datetime | None
 
     # Current week (7 days)
     current_week_tokens: int
     week_limit: int
     week_percentage: float
-    week_reset_time: Optional[datetime]
+    week_reset_time: datetime | None
 
     # Opus-specific (for Max plans)
     current_week_opus_tokens: int
@@ -93,7 +93,7 @@ class UsageLimits:
 def get_current_session_usage(
     records: list[UsageRecord],
     session_window_hours: int = 5
-) -> tuple[int, Optional[datetime]]:
+) -> tuple[int, datetime | None]:
     """
     Calculate token usage for the current 5-hour session window.
 

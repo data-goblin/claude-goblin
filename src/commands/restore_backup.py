@@ -6,6 +6,7 @@ from datetime import datetime
 from rich.console import Console
 
 from src.storage import api
+
 #endregion
 
 
@@ -68,7 +69,7 @@ def run(console: Console) -> None:
 
         # Restore from backup
         shutil.copy2(backup_path, db_path)
-        console.print(f"[green]✓ Database restored from backup[/green]")
+        console.print("[green]✓ Database restored from backup[/green]")
         console.print(f"[dim]Restored: {db_path}[/dim]")
 
         # Show restored stats

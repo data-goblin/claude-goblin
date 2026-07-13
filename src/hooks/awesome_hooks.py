@@ -8,9 +8,9 @@ repository and custom hooks for Python/uv enforcement.
 #region Imports
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
+
 #endregion
 
 
@@ -308,7 +308,7 @@ def is_uv_standard_hook(hook: dict) -> bool:
     return False
 
 
-def setup(console: Console, settings: dict, settings_path: Path, hook_type: Optional[str] = None, user: bool = False) -> None:
+def setup(console: Console, settings: dict, settings_path: Path, hook_type: str | None = None, user: bool = False) -> None:
     """
     Set up awesome-hooks.
 
@@ -346,7 +346,7 @@ def setup(console: Console, settings: dict, settings_path: Path, hook_type: Opti
         console.print("Valid types: bundler-standard, file-name-consistency, uv-standard")
 
 
-def remove(console: Console, settings: dict, hook_type: Optional[str] = None) -> bool:
+def remove(console: Console, settings: dict, hook_type: str | None = None) -> bool:
     """
     Remove awesome-hooks from settings.
 

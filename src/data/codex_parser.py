@@ -1,16 +1,17 @@
 #region Imports
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
 
 from src.models.usage_record import TokenUsage, UsageRecord
+
 #endregion
 
 
 #region Functions
 
 
-def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+def _parse_ts(value: str | None) -> datetime | None:
     """Parse a Codex ISO-8601 timestamp (trailing Z) into a datetime."""
     if not value:
         return None
@@ -46,13 +47,13 @@ def parse_codex_file(file_path: Path) -> Iterator[UsageRecord]:
     import json
 
     session_id = file_path.stem
-    model: Optional[str] = None
+    model: str | None = None
     cwd = "unknown"
     version = "codex"
     turn = 0
 
     try:
-        with open(file_path, "r", encoding="utf-8") as fh:
+        with open(file_path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:

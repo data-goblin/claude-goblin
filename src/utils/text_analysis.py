@@ -1,6 +1,6 @@
 #region Imports
 import re
-from typing import Optional
+
 #endregion
 
 
@@ -76,7 +76,7 @@ PLEASE_PATTERNS = [
 #region Functions
 
 
-def count_swears(text: Optional[str]) -> int:
+def count_swears(text: str | None) -> int:
     """
     Count swear words in text using comprehensive pattern matching.
 
@@ -102,7 +102,7 @@ def count_swears(text: Optional[str]) -> int:
     return count
 
 
-def count_perfect_phrases(text: Optional[str]) -> int:
+def count_perfect_phrases(text: str | None) -> int:
     """
     Count instances of "Perfect!" in text.
 
@@ -125,7 +125,7 @@ def count_perfect_phrases(text: Optional[str]) -> int:
     return count
 
 
-def count_absolutely_right_phrases(text: Optional[str]) -> int:
+def count_absolutely_right_phrases(text: str | None) -> int:
     """
     Count instances of "You're absolutely right!" in text.
 
@@ -148,7 +148,7 @@ def count_absolutely_right_phrases(text: Optional[str]) -> int:
     return count
 
 
-def count_thank_phrases(text: Optional[str]) -> int:
+def count_thank_phrases(text: str | None) -> int:
     """
     Count instances of "thank you" and variations in text.
 
@@ -171,7 +171,7 @@ def count_thank_phrases(text: Optional[str]) -> int:
     return count
 
 
-def count_please_phrases(text: Optional[str]) -> int:
+def count_please_phrases(text: str | None) -> int:
     """
     Count instances of "please" and variations in text.
 
@@ -194,7 +194,7 @@ def count_please_phrases(text: Optional[str]) -> int:
     return count
 
 
-def get_character_count(text: Optional[str]) -> int:
+def get_character_count(text: str | None) -> int:
     """
     Get character count of text.
 
