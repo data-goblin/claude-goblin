@@ -419,7 +419,7 @@ def setup_sync_command(
         # Quack-specific configuration
         if not yes:
             from rich.prompt import Confirm, Prompt
-            host = Prompt.ask("Remote host (Tailscale FQDN or IP)", default="your-quack-host.example.com")
+            host = Prompt.ask("Remote host (Tailscale FQDN or IP)")
             port_str = Prompt.ask("Port", default="9494")
             disable_ssl = Confirm.ask("Disable SSL? (yes if using Tailscale WireGuard)", default=True)
             token_source = Prompt.ask("Token source", choices=["keychain", "env", "file"], default="keychain")
