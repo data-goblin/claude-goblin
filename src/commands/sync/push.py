@@ -1,35 +1,54 @@
 """
 Sync push command for Claude Goblin.
 
-Pushes local usage records to the remote DuckDB via Quack protocol.
+Pushes local usage records to every configured sink (quack DuckDB remote,
+OneLake lakehouse).
 """
 #region Imports
+from pathlib import Path
+from typing import Any
+
 import typer
 from rich.console import Console
 
-from src.config.user_config import get_sync_provider, get_storage_mode
+from src.config.user_config import get_storage_mode, get_sync_providers
 from src.storage import get_db_path
+
 #endregion
 
 
 #region Functions
 
 
+_PUSHABLE_PROVIDERS = ("quack", "onelake")
+
+
+def _push_one(provider: str, db_path: Path, full: bool, respect_interval: bool) -> dict[str, Any]:
+    """Dispatch a single sink's push; returns its result dict."""
+    if provider == "quack":
+        from src.storage.quack_remote import push_to_remote
+        return push_to_remote(db_path, full=full)
+    from src.storage.onelake_remote import push_to_onelake
+    return push_to_onelake(db_path, full=full, respect_interval=respect_interval)
+
+
 def run_push(console: Console, force: bool = False, full: bool = False, strict: bool = True) -> None:
     """
-    Validate sync config and push local records to the remote.
+    Validate sync config and push local records to every configured sink.
 
     strict=True raises typer.Exit(1) on configuration problems (interactive
     `ccg sync push`); strict=False skips them quietly so hook-driven flows
-    no-op on hosts without a remote. Actual push failures always exit
-    non-zero so wrapper logs capture them.
+    no-op on hosts without a remote. Sinks are isolated: one failing does not
+    block the others, but any real failure still exits non-zero so wrapper
+    logs capture it. Hook-driven (strict=False) OneLake pushes respect the
+    min-push-interval throttle; explicit pushes do not.
     """
-    provider = get_sync_provider()
-    if provider != "quack":
+    providers = [p for p in get_sync_providers() if p in _PUSHABLE_PROVIDERS]
+    if not providers:
         if not strict:
             return
-        console.print(f"[red]Sync provider is '{provider}', not 'quack'[/red]")
-        console.print("[yellow]Run: ccg sync setup --provider quack[/yellow]")
+        console.print("[red]No pushable sync provider configured[/red]")
+        console.print("[yellow]Run: ccg sync setup --provider quack (or onelake)[/yellow]")
         raise typer.Exit(1)
 
     storage_mode = get_storage_mode()
@@ -49,27 +68,34 @@ def run_push(console: Console, force: bool = False, full: bool = False, strict: 
         console.print("[red]Local database not found. Run 'ccg usage' first.[/red]")
         raise typer.Exit(1)
 
-    try:
-        from src.storage.quack_remote import push_to_remote
+    failures = 0
+    for provider in providers:
+        try:
+            with console.status(
+                f"[bold #ff8800]Pushing to {provider}...", spinner="dots", spinner_style="#ff8800"
+            ):
+                result = _push_one(db_path=db_path, provider=provider, full=full, respect_interval=not strict)
 
-        with console.status("[bold #ff8800]Pushing to remote...", spinner="dots", spinner_style="#ff8800"):
-            result = push_to_remote(db_path, full=full)
+            if result.get("skipped"):
+                console.print(f"[dim]{provider}: nothing new to push[/dim]")
+            else:
+                console.print(f"[green]{provider}: pushed {result['new_records']:,} new records[/green]")
+                if result.get("remote_total") is not None:
+                    console.print(
+                        f"[dim]{provider} total: {result['remote_total']:,} records "
+                        f"from {result['devices']} device(s)[/dim]"
+                    )
+        except ImportError as e:
+            failures += 1
+            console.print(f"[red]{provider}: missing dependency ({e})[/red]")
+        except RuntimeError as e:
+            failures += 1
+            console.print(f"[red]{provider}: {e}[/red]")
+        except Exception as e:
+            failures += 1
+            console.print(f"[red]{provider}: push failed: {e}[/red]")
 
-        if result.get("skipped"):
-            console.print("[dim]Nothing new to push (watermark up to date)[/dim]")
-        else:
-            console.print(f"[green]Pushed {result['new_records']:,} new records to remote[/green]")
-            if result.get("remote_total") is not None:
-                console.print(f"[dim]Remote total: {result['remote_total']:,} records from {result['devices']} device(s)[/dim]")
-
-    except ImportError:
-        console.print("[red]DuckDB not installed. Install with: uv pip install claude-goblin[duckdb][/red]")
-        raise typer.Exit(1)
-    except RuntimeError as e:
-        console.print(f"[red]Connection error: {e}[/red]")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Push failed: {e}[/red]")
+    if failures:
         raise typer.Exit(1)
 
 
@@ -82,20 +108,21 @@ def run_push(console: Console, force: bool = False, full: bool = False, strict: 
 def push_command(
     force: bool = typer.Option(False, "--force", "-f", help="Push even if storage mode is 'aggregate'"),
     full: bool = typer.Option(False, "--full", help="Ignore the push watermark and reconcile against all remote keys"),
-):
+) -> None:
     """
-    Push local usage records to the remote DuckDB server.
+    Push local usage records to every configured sync sink.
 
-    Syncs new local usage_records, limits, and pricing to the configured
-    remote. Deduplicates by (session_id, message_uuid). A local watermark
-    keeps routine pushes incremental; use --full to reconcile everything
-    (e.g. after remote rows were removed manually). --full still advances
-    the watermark to the current local maximum afterwards.
+    Syncs new local usage_records, limits, and pricing to each sink in
+    sync_providers (quack DuckDB remote, OneLake lakehouse). Deduplicates by
+    (session_id, message_uuid). A per-sink watermark keeps routine pushes
+    incremental; use --full to reconcile everything (e.g. after remote rows
+    were removed manually). --full still advances the watermarks to the
+    current local maximum afterwards.
 
     Requires:
-    - Sync provider set to 'quack' (ccg sync setup --provider quack)
+    - At least one provider configured (ccg sync setup --provider quack|onelake)
     - Storage mode 'full' for individual record sync (--force to override)
-    - Remote server running and reachable
+    - The sink reachable (quack server up / az login for OneLake)
     """
     console = Console()
     run_push(console, force=force, full=full, strict=True)
