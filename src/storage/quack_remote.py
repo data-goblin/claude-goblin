@@ -429,8 +429,10 @@ def push_to_remote(local_db_path: Path, full: bool = False) -> dict:
     if get_sync_state(QUACK_PURGE_KEY, db_path=local_db_path) == "1":
         raise RuntimeError(
             "quack push blocked: a --rebuild rewrote local row identities and the "
-            "remote still holds the old rows. Purge the rebuilt sessions on the "
-            "remote DuckDB, then run: ccg sync push --quack-purged --full"
+            "remote still holds the old rows. Run: ccg sync repair (rebuilds the "
+            "remote table from local truth, preserving other devices' rows), or "
+            "purge this device's rows on the remote yourself and run: "
+            "ccg sync push --quack-purged --full"
         )
 
     state = _read_local_push_state(local_db_path)
@@ -510,6 +512,177 @@ def push_to_remote(local_db_path: Path, full: bool = False) -> dict:
         "remote_total": remote_total,
         "devices": devices,
         "skipped": False,
+    }
+
+
+#endregion
+
+
+#region Repair
+
+
+def _remote_usage_columns(conn: "duckdb.DuckDBPyConnection") -> list[str]:
+    """Column names of the live remote usage_records table."""
+    cur = conn.execute("SELECT * FROM remote.usage_records LIMIT 0")
+    return [d[0] for d in cur.description]
+
+
+def _fetch_remote_usage_arrow(conn: "duckdb.DuckDBPyConnection"):
+    """Materialize the entire remote usage_records table client-side."""
+    result = conn.execute("SELECT * FROM remote.usage_records").arrow()
+    # duckdb returns a RecordBatchReader on some versions, a Table on others
+    return result.read_all() if hasattr(result, "read_all") else result
+
+
+def repair_remote(local_db_path: Path) -> dict:
+    """
+    Rebuild the remote usage_records table without data loss after a local
+    --rebuild rewrote row identities.
+
+    Quack has no DELETE/ALTER, so replacing rows means recreating the table:
+
+    1. Pull every remote row into a timestamped local backup DuckDB file
+    2. Copy rows of devices this install is NOT authoritative for (device_id
+       absent from the local db) into a timestamped server-side backup table
+    3. DROP + recreate usage_records on the current schema
+    4. Refill: all local rows (corrected identities) plus the preserved
+       foreign-device rows
+    5. Verify per-device counts, clear the purge guard, advance the watermark
+
+    Foreign devices keep their rows byte-for-byte (still pre-fix counting
+    until each of them rebuilds and repairs in turn). model_pricing is also
+    recreated from local so schema additions propagate. Both backups outlive
+    the repair; delete them manually once satisfied.
+
+    Returns:
+        Summary dict: backup_path, keep_table, per-device before/after counts
+
+    Raises:
+        RuntimeError: If post-repair verification fails (backups intact)
+    """
+    _require_duckdb()
+
+    from src.storage.duckdb_backend import get_sync_state, set_sync_state
+
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    backup_path = local_db_path.parent / f"quack-remote-backup-{stamp}.duckdb"
+
+    conn = connect_remote()
+    try:
+        init_remote_schema(conn)
+        conn.execute(f"ATTACH '{local_db_path}' AS local_db (READ_ONLY)")
+
+        local_devices = {
+            r[0] for r in conn.execute(
+                "SELECT DISTINCT device_id FROM local_db.usage_records WHERE device_id IS NOT NULL"
+            ).fetchall()
+        }
+        local_nulls = conn.execute(
+            "SELECT COUNT(*) FROM local_db.usage_records WHERE device_id IS NULL"
+        ).fetchone()[0]
+        remote_nulls = conn.execute(
+            "SELECT COUNT(*) FROM remote.usage_records WHERE device_id IS NULL"
+        ).fetchone()[0]
+        # NULL-device rows can't be attributed to an install: with rows on
+        # both sides the refill would count the same usage twice
+        if local_nulls and remote_nulls:
+            raise RuntimeError(
+                f"repair aborted: {local_nulls} local and {remote_nulls} remote rows have "
+                "no device_id, so they cannot be told apart. Re-ingest with a configured "
+                "device (ccg update usage --rebuild) before repairing."
+            )
+        remote_cols = _remote_usage_columns(conn)
+        before = {
+            r[0]: r[1] for r in conn.execute(
+                "SELECT COALESCE(device_id, '<null>'), COUNT(*) FROM remote.usage_records GROUP BY 1"
+            ).fetchall()
+        }
+
+        # 1. Full client-side backup of the remote table, as-is
+        remote_rows = _fetch_remote_usage_arrow(conn)
+        conn.execute(f"ATTACH '{backup_path}' AS bak")
+        conn.register("remote_rows_arrow", remote_rows)
+        conn.execute("CREATE TABLE bak.usage_records AS SELECT * FROM remote_rows_arrow")
+        conn.execute("DETACH bak")
+
+        # 2. Server-side backup table holding only foreign-device rows
+        keep_table = f"usage_records_keep_{stamp}"
+        col_list = ", ".join(remote_cols)
+        conn.execute(f"CREATE TABLE remote.{keep_table} AS SELECT * FROM remote_rows_arrow LIMIT 0")
+        keep_predicate = (
+            "device_id IS NULL" if not local_devices else
+            "device_id IS NULL OR device_id NOT IN ("
+            + ", ".join(f"'{d}'" for d in sorted(local_devices)) + ")"
+        )
+        conn.execute(f"""
+            INSERT INTO remote.{keep_table} ({col_list})
+            SELECT {col_list} FROM remote_rows_arrow WHERE {keep_predicate}
+        """)
+
+        # 3. Recreate on the current schema
+        conn.execute("DROP TABLE remote.usage_records")
+        init_remote_schema(conn)
+
+        # 4a. Corrected local rows
+        conn.execute(f"""
+            INSERT INTO remote.usage_records ({_USAGE_COLS})
+            SELECT {_USAGE_COLS} FROM local_db.usage_records
+        """)
+
+        # 4b. Preserved foreign rows; columns the old schema lacked fill
+        # with their defaults
+        conn.execute(f"""
+            INSERT INTO remote.usage_records ({col_list})
+            SELECT {col_list} FROM remote_rows_arrow WHERE {keep_predicate}
+        """)
+        conn.unregister("remote_rows_arrow")
+
+        # model_pricing: recreate positionally-aligned with local
+        conn.execute("DROP TABLE remote.model_pricing")
+        init_remote_schema(conn)
+        conn.execute("INSERT INTO remote.model_pricing SELECT * FROM local_db.model_pricing")
+
+        # 5. Verify: local devices match local counts, foreign match before
+        local_counts = {
+            r[0]: r[1] for r in conn.execute(
+                "SELECT device_id, COUNT(*) FROM local_db.usage_records "
+                "WHERE device_id IS NOT NULL GROUP BY 1"
+            ).fetchall()
+        }
+        after = {
+            r[0]: r[1] for r in conn.execute(
+                "SELECT COALESCE(device_id, '<null>'), COUNT(*) FROM remote.usage_records GROUP BY 1"
+            ).fetchall()
+        }
+        expected = dict(before)
+        for device, count in local_counts.items():
+            expected[device] = count
+        if local_nulls:
+            expected["<null>"] = local_nulls
+        expected = {d: c for d, c in expected.items() if c}
+        if after != expected:
+            raise RuntimeError(
+                f"repair verification failed: expected {expected}, remote has {after}. "
+                f"Backups intact: {backup_path} (local) and remote.{keep_table} (server)"
+            )
+
+        max_id = conn.execute("SELECT MAX(id) FROM local_db.usage_records").fetchone()[0]
+    finally:
+        conn.close()
+
+    # Same ordering rule as push_to_remote: touch local sync_state only after
+    # the remote connection releases its READ_ONLY attach on the local file.
+    if get_sync_state(QUACK_PURGE_KEY, db_path=local_db_path) == "1":
+        set_sync_state(QUACK_PURGE_KEY, "0", db_path=local_db_path)
+    if max_id is not None:
+        set_sync_state(WM_USAGE_KEY, str(max_id), db_path=local_db_path)
+
+    return {
+        "backup_path": str(backup_path),
+        "keep_table": keep_table,
+        "local_devices": sorted(local_devices),
+        "before": before,
+        "after": after,
     }
 
 
