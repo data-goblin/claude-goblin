@@ -145,6 +145,70 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | `ccg remove hooks [type]` | Remove hooks (any hook type, or all) |
 | `ccg remove usage --force` | Delete historical database (with backup) |
 
+## Sync
+
+Push usage data from the local database to one or more remote sinks so a team
+(or your own fleet of machines) gets a centralized view. Two sinks are
+supported and can run in parallel from a single `ccg sync push`:
+
+| Provider | Target | Transport |
+|----------|--------|-----------|
+| `quack` | A remote DuckDB server | Quack protocol (e.g. over Tailscale) |
+| `onelake` | A Microsoft Fabric lakehouse | Delta Lake merges over OneLake (delta-rs) |
+
+Both sinks are watermark-incremental and dedupe on `(session_id,
+message_uuid)`, so pushes are idempotent and cheap when there is nothing new.
+
+### OneLake (Microsoft Fabric)
+
+Everything is configured per user - bring your own tenant, workspace,
+capacity, and lakehouse. Requirements: `pip install "claude-goblin[onelake]"`,
+the [fab CLI](https://microsoft.github.io/fabric-cli/) plus `az login` into
+your tenant, and any Fabric capacity.
+
+```bash
+ccg sync setup --provider onelake --workspace <YourWorkspace> --lakehouse <YourLakehouse>
+ccg sync push
+```
+
+Setup resolves and stores your workspace/lakehouse ids and tenant via fab/az.
+Pushes merge `usage_records`, `model_pricing`, and a `devices` dimension
+(device -> user/organization/subscription attribution) into Delta tables,
+creating them on first push. Optional config keys under
+`sync_config.onelake`:
+
+```json
+{
+  "device_filter": ["only-these-device-ids-leave-this-machine"],
+  "min_push_interval": 900,
+  "compact_every": 50,
+  "semantic_model_id": "<set by scripts/create_semantic_model.py --store-id>"
+}
+```
+
+`device_filter` scopes the push (and its new-data check) to selected device
+ids - useful when one machine tracks several profiles but only some may be
+shared. Hook-driven pushes respect `min_push_interval`; explicit `ccg sync
+push` does not. Every `compact_every` pushes the sink compacts and vacuums
+its Delta tables.
+
+To query the lakehouse with DAX, create a Direct Lake semantic model over the
+pushed tables (relationships plus token/cost measures included):
+
+```bash
+python3 scripts/create_semantic_model.py --store-id
+ccg sync query -q 'EVALUATE ROW("Cost", [Est API Cost], "Tokens", [Total Tokens])'
+```
+
+`Est API Cost` is an estimate at list API prices - subscription plans are
+never billed these amounts; treat it as an API-equivalent value metric.
+
+### Automatic pushes
+
+`ccg update usage --push` runs ingest then pushes to every configured sink,
+skipping quietly on machines without one - suitable for a Claude Code Stop
+hook. Check sink state at any time with `ccg sync status`.
+
 ## Data Source
 
 Claude Goblin reads usage data from Claude Code's local session logs:
