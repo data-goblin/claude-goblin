@@ -218,6 +218,15 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 6.00, 'Legacy Sonnet 4'),
             ('claude-opus-4-20250514', 15.00, 75.00, 18.75, 1.50, 30.00, 'Legacy Opus 4'),
             ('claude-sonnet-3-7-20250219', 3.00, 15.00, 3.75, 0.30, 6.00, 'Legacy Sonnet 3.7'),
+            ('gpt-5.5', 5.00, 30.00, 0.00, 0.5, 0.00, 'OpenAI GPT-5.5 (Codex)'),
+            ('gpt-5.6-sol', 5.00, 30.00, 0.00, 0.5, 0.00, 'OpenAI GPT-5.6 Sol (Codex)'),
+            ('gpt-5.6-terra', 2.50, 15.00, 0.00, 0.25, 0.00, 'OpenAI GPT-5.6 Terra (Codex)'),
+            ('gpt-5.3-codex', 1.75, 14.00, 0.00, 0.175, 0.00, 'OpenAI GPT-5.3 Codex'),
+            ('gpt-5.3-codex-spark', 1.75, 14.00, 0.00, 0.175, 0.00, 'OpenAI GPT-5.3 Codex Spark'),
+            ('gpt-5-codex', 1.25, 10.00, 0.00, 0.125, 0.00, 'OpenAI GPT-5 Codex'),
+            ('gemini-3-pro-preview', 2.00, 12.00, 0.00, 0.2, 0.00, 'Google Gemini 3 Pro Preview'),
+            ('gemini-2.5-pro', 1.25, 10.00, 0.00, 0.125, 0.00, 'Google Gemini 2.5 Pro'),
+            ('gemini-2.5-flash', 0.30, 2.50, 0.00, 0.03, 0.00, 'Google Gemini 2.5 Flash'),
             ('<synthetic>', 0.00, 0.00, 0.00, 0.00, 0.00, 'Test/synthetic model'),
         ]
 

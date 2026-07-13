@@ -129,6 +129,78 @@
       "cache_read_per_mtok": 0.0,
       "notes": "Test/synthetic model - no cost",
       "cache_write_1h_per_mtok": 0.0
+    },
+    "gpt-5.5": {
+      "input_per_mtok": 5.0,
+      "output_per_mtok": 30.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.5,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "OpenAI GPT-5.5 (Codex)"
+    },
+    "gpt-5.6-sol": {
+      "input_per_mtok": 5.0,
+      "output_per_mtok": 30.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.5,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "OpenAI GPT-5.6 Sol (Codex)"
+    },
+    "gpt-5.6-terra": {
+      "input_per_mtok": 2.5,
+      "output_per_mtok": 15.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.25,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "OpenAI GPT-5.6 Terra (Codex)"
+    },
+    "gpt-5.3-codex": {
+      "input_per_mtok": 1.75,
+      "output_per_mtok": 14.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.175,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "OpenAI GPT-5.3 Codex"
+    },
+    "gpt-5.3-codex-spark": {
+      "input_per_mtok": 1.75,
+      "output_per_mtok": 14.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.175,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "OpenAI GPT-5.3 Codex Spark"
+    },
+    "gpt-5-codex": {
+      "input_per_mtok": 1.25,
+      "output_per_mtok": 10.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.125,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "OpenAI GPT-5 Codex"
+    },
+    "gemini-3-pro-preview": {
+      "input_per_mtok": 2.0,
+      "output_per_mtok": 12.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.2,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "Google Gemini 3 Pro Preview"
+    },
+    "gemini-2.5-pro": {
+      "input_per_mtok": 1.25,
+      "output_per_mtok": 10.0,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.125,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "Google Gemini 2.5 Pro"
+    },
+    "gemini-2.5-flash": {
+      "input_per_mtok": 0.3,
+      "output_per_mtok": 2.5,
+      "cache_write_per_mtok": 0.0,
+      "cache_read_per_mtok": 0.03,
+      "cache_write_1h_per_mtok": 0.0,
+      "notes": "Google Gemini 2.5 Flash"
     }
   }
 }
