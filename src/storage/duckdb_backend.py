@@ -7,7 +7,6 @@ Required for MotherDuck cloud sync and analytical queries.
 #region Imports
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 try:
     import duckdb
@@ -15,7 +14,8 @@ try:
 except ImportError:
     DUCKDB_AVAILABLE = False
 
-from src.models.usage_record import UsageRecord, TokenUsage
+from src.models.usage_record import TokenUsage, UsageRecord
+
 #endregion
 
 
@@ -276,9 +276,9 @@ def save_file_aggregate(
     file_path: Path,
     records: list[UsageRecord],
     db_path: Path = DEFAULT_DB_PATH,
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> int:
     """
     Apply one transcript file's aggregate contribution as a DELTA.
@@ -371,9 +371,9 @@ def save_snapshot(
     records: list[UsageRecord],
     db_path: Path = DEFAULT_DB_PATH,
     storage_mode: str = "aggregate",
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> int:
     """
     Save usage records to the DuckDB database as a snapshot.
@@ -666,9 +666,9 @@ def save_limits_snapshot(
     week_reset: str,
     opus_reset: str,
     db_path: Path = DEFAULT_DB_PATH,
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> None:
     """
     Save usage limits snapshot to the DuckDB database.
@@ -719,8 +719,8 @@ def save_limits_snapshot(
 
 
 def load_historical_records(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     db_path: Path = DEFAULT_DB_PATH
 ) -> list[UsageRecord]:
     """
@@ -1118,7 +1118,7 @@ def update_files_metadata(
     file_paths: list[Path],
     record_count: int = 0,
     db_path: Path = DEFAULT_DB_PATH,
-    stats: Optional[dict[str, tuple[int, int]]] = None,
+    stats: dict[str, tuple[int, int]] | None = None,
 ) -> None:
     """
     Upsert parse metadata for many files in a single connection.
@@ -1210,7 +1210,102 @@ def get_update_coverage(db_path: Path = DEFAULT_DB_PATH) -> dict:
         conn.close()
 
 
-def get_sync_state(key: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[str]:
+def delete_session_rows(
+    session_ids: list[str],
+    device_id: str | None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[str]:
+    """
+    Delete usage_records for the given sessions (scoped to one device).
+
+    Returns:
+        Distinct dates the deleted rows covered
+    """
+    require_duckdb()
+    if not session_ids:
+        return []
+    init_database(db_path)
+    placeholders = ", ".join("?" for _ in session_ids)
+    device_clause = "device_id = ?" if device_id is not None else "device_id IS NULL"
+    params: list[str] = list(session_ids) + ([device_id] if device_id is not None else [])
+    conn = duckdb.connect(str(db_path))
+    try:
+        dates = [
+            row[0] for row in conn.execute(
+                f"SELECT DISTINCT date FROM usage_records "
+                f"WHERE session_id IN ({placeholders}) AND {device_clause}",
+                params,
+            ).fetchall()
+        ]
+        conn.execute(
+            f"DELETE FROM usage_records WHERE session_id IN ({placeholders}) AND {device_clause}",
+            params,
+        )
+        return dates
+    finally:
+        conn.close()
+
+
+def recompute_daily_snapshots(
+    dates: list[str],
+    db_path: Path = DEFAULT_DB_PATH,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
+) -> None:
+    """
+    Recompute daily_snapshots for the given dates from usage_records.
+
+    Dates left with zero usage_records rows have their snapshot row removed
+    (they were fully replaced during a rebuild), so stale inflated totals
+    never survive on empty dates.
+    """
+    require_duckdb()
+    if not dates:
+        return
+    init_database(db_path)
+    placeholders = ", ".join("?" for _ in dates)
+    timestamp = datetime.now().isoformat()
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO daily_snapshots (
+                date, total_prompts, total_responses, total_sessions, total_tokens,
+                input_tokens, output_tokens, cache_creation_tokens,
+                cache_read_tokens, snapshot_timestamp,
+                device_id, device_name, device_type
+            )
+            SELECT
+                u.date,
+                SUM(CASE WHEN u.message_type = 'user' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN u.message_type = 'assistant' THEN 1 ELSE 0 END),
+                COUNT(DISTINCT u.session_id),
+                COALESCE(SUM(u.total_tokens), 0),
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0),
+                COALESCE(SUM(u.cache_creation_tokens), 0),
+                COALESCE(SUM(u.cache_read_tokens), 0),
+                ?, ?, ?, ?
+            FROM usage_records u
+            WHERE u.date IN ({placeholders})
+            GROUP BY u.date
+            """,
+            [timestamp, device_id, device_name, device_type, *dates],
+        )
+        conn.execute(
+            f"""
+            DELETE FROM daily_snapshots
+            WHERE date IN ({placeholders})
+              AND date NOT IN (SELECT DISTINCT date FROM usage_records WHERE date IN ({placeholders}))
+            """,
+            [*dates, *dates],
+        )
+    finally:
+        conn.close()
+
+
+def get_sync_state(key: str, db_path: Path = DEFAULT_DB_PATH) -> str | None:
     """
     Read a value from the sync_state table.
 
@@ -1269,7 +1364,8 @@ def fill_empty_daily_snapshots(
     require_duckdb()
     init_database(db_path)
 
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
 
     conn = duckdb.connect(str(db_path))
     try:

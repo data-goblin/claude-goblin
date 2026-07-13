@@ -108,6 +108,10 @@ def run_push(console: Console, force: bool = False, full: bool = False, strict: 
 def push_command(
     force: bool = typer.Option(False, "--force", "-f", help="Push even if storage mode is 'aggregate'"),
     full: bool = typer.Option(False, "--full", help="Ignore the push watermark and reconcile against all remote keys"),
+    quack_purged: bool = typer.Option(
+        False, "--quack-purged",
+        help="Confirm the quack remote was purged after a --rebuild; clears the push guard",
+    ),
 ) -> None:
     """
     Push local usage records to every configured sync sink.
@@ -125,6 +129,11 @@ def push_command(
     - The sink reachable (quack server up / az login for OneLake)
     """
     console = Console()
+    if quack_purged:
+        from src.storage.duckdb_backend import set_sync_state
+        from src.storage.quack_remote import QUACK_PURGE_KEY
+        set_sync_state(QUACK_PURGE_KEY, "0", db_path=get_db_path())
+        console.print("[green]Quack purge guard cleared[/green]")
     run_push(console, force=force, full=full, strict=True)
 
 

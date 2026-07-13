@@ -6,10 +6,15 @@ from rich.console import Console
 
 from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
-from src.config.user_config import get_extra_sources, get_storage_mode, get_tracking_mode
+from src.config.user_config import (
+    get_device_id,
+    get_extra_sources,
+    get_storage_mode,
+    get_tracking_mode,
+)
 from src.data.codex_parser import parse_all_codex_files
 from src.data.jsonl_parser import parse_all_jsonl_files
-from src.storage import api
+from src.storage import api, get_db_path
 
 #endregion
 
@@ -122,6 +127,114 @@ def ingest_token_usage(console: Console, force: bool = False, verbose: bool = Tr
     if verbose and not stale_files and not deleted_files:
         console.print("[dim]No new data to ingest[/dim]")
 
+    return total_saved
+
+
+def rebuild_token_usage(console: Console) -> int:
+    """
+    Recompute usage_records from surviving transcripts (repair command).
+
+    Per-session replacement: every session still present on disk is deleted
+    and re-ingested under the corrected billed-response identity; sessions
+    whose transcripts aged out are untouched (their rows are the only
+    surviving record). Backs up the database file first and sets the quack
+    purge guard before any delete so a racing hook push cannot double the
+    remote.
+
+    Returns:
+        Number of records saved by the re-ingest
+    """
+    import shutil
+
+    from src.storage.duckdb_backend import (
+        delete_session_rows,
+        recompute_daily_snapshots,
+        set_sync_state,
+    )
+    from src.storage.quack_remote import QUACK_PURGE_KEY
+
+    if get_storage_mode() != "full":
+        console.print("[red]--rebuild requires storage_mode 'full' (records are the repair source)[/red]")
+        return 0
+
+    db_path = get_db_path()
+    if not db_path.exists():
+        console.print("[yellow]No database to rebuild[/yellow]")
+        return 0
+    if db_path.suffix != ".duckdb":
+        console.print("[red]--rebuild currently supports the DuckDB backend only[/red]")
+        return 0
+
+    backup = db_path.with_name(
+        f"{db_path.name}.pre-rebuild-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    )
+    shutil.copy2(db_path, backup)
+    if not backup.exists():
+        console.print("[red]Backup failed; aborting rebuild[/red]")
+        return 0
+    console.print(f"[dim]Backup: {backup}[/dim]")
+
+    # Guard BEFORE any mutation: a hook-triggered quack push mid-rebuild (or
+    # after it, before the remote purge) must refuse.
+    set_sync_state(QUACK_PURGE_KEY, "1", db_path=db_path)
+
+    sources: list[tuple[list[Path], dict | None]] = []
+    jsonl_files = get_claude_jsonl_files()
+    if jsonl_files:
+        sources.append((jsonl_files, None))
+    for extra in get_extra_sources():
+        extra_dir = Path(extra["path"])
+        if extra_dir.is_dir():
+            extra_files = list(extra_dir.rglob("*.jsonl"))
+            if extra_files:
+                sources.append((extra_files, extra))
+
+    total_saved = 0
+    for files, overrides in sources:
+        label = overrides["device_name"] if overrides else "this device"
+        try:
+            pre_stats: dict[str, tuple[int, int]] = {}
+            for f in files:
+                try:
+                    st = f.stat()
+                    pre_stats[str(f)] = (st.st_mtime_ns, st.st_size)
+                except OSError:
+                    pass
+            if overrides and overrides.get("format") == "codex":
+                records = parse_all_codex_files(files)
+            else:
+                records = parse_all_jsonl_files(files)
+            if not records:
+                continue
+            device_kwargs = {}
+            device_id = None
+            if overrides:
+                device_kwargs = {
+                    "device_id": overrides["device_id"],
+                    "device_name": overrides["device_name"],
+                    "device_type": overrides["device_type"],
+                }
+                device_id = overrides["device_id"]
+            else:
+                device_id = get_device_id()
+
+            sessions = sorted({r.session_id for r in records})
+            deleted_dates = delete_session_rows(sessions, device_id, db_path=db_path)
+            saved_count = api.save_snapshot(records, storage_mode="full", **device_kwargs)
+            affected = sorted(set(deleted_dates) | {r.date_key for r in records})
+            recompute_daily_snapshots(affected, db_path=db_path, **device_kwargs)
+            api.update_files_metadata(files, record_count=0, stats=pre_stats)
+            total_saved += saved_count
+            console.print(
+                f"[green]Rebuilt {len(sessions)} sessions ({saved_count} records) for {label}[/green]"
+            )
+        except Exception as e:
+            console.print(f"[yellow]⚠ Rebuild of {label} failed: {e}[/yellow]")
+
+    console.print(
+        "[yellow]Quack pushes are blocked until the remote is purged; "
+        "then run: ccg sync push --quack-purged --full[/yellow]"
+    )
     return total_saved
 
 

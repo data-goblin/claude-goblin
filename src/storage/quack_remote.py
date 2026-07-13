@@ -10,7 +10,6 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 try:
     import duckdb
@@ -18,8 +17,9 @@ try:
 except ImportError:
     DUCKDB_AVAILABLE = False
 
-from src.config.user_config import get_sync_config, get_sync_provider
-from src.models.usage_record import UsageRecord, TokenUsage
+from src.config.user_config import get_sync_config
+from src.models.usage_record import TokenUsage, UsageRecord
+
 #endregion
 
 
@@ -214,6 +214,11 @@ def init_remote_schema(conn: "duckdb.DuckDBPyConnection") -> None:
 WM_USAGE_KEY = "last_pushed_usage_id"
 WM_LIMITS_KEY = "last_pushed_limits_ts"
 
+# Set by `ccg update usage --rebuild`: the repair rewrites row identities, so
+# pushing before the remote is purged would insert corrected rows alongside
+# the old inflated ones (quack has no DELETE). Cleared by --quack-purged.
+QUACK_PURGE_KEY = "quack_purge_required"
+
 # Above this many candidate sessions the IN-list dedupe pull is no longer
 # clearly cheaper than the full key pull, so fall back to the full path.
 _MAX_INCREMENTAL_SESSIONS = 1000
@@ -313,7 +318,7 @@ def _push_usage_incremental(conn: "duckdb.DuckDBPyConnection", wm_id: int) -> in
         if keys:
             conn.executemany("INSERT INTO existing_keys VALUES (?, ?)", keys)
 
-    anti_join = f"""
+    anti_join = """
         FROM local_db.usage_records s
         WHERE s.id > ?
           AND NOT EXISTS (
@@ -405,6 +410,15 @@ def push_to_remote(local_db_path: Path, full: bool = False) -> dict:
     """
     _require_duckdb()
 
+    from src.storage.duckdb_backend import get_sync_state
+
+    if get_sync_state(QUACK_PURGE_KEY, db_path=local_db_path) == "1":
+        raise RuntimeError(
+            "quack push blocked: a --rebuild rewrote local row identities and the "
+            "remote still holds the old rows. Purge the rebuilt sessions on the "
+            "remote DuckDB, then run: ccg sync push --quack-purged --full"
+        )
+
     state = _read_local_push_state(local_db_path)
     wm_id = None if full else state["wm_id"]
 
@@ -492,8 +506,8 @@ def push_to_remote(local_db_path: Path, full: bool = False) -> dict:
 
 
 def load_historical_records(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> list[UsageRecord]:
     conn = connect_remote()
     try:
@@ -638,7 +652,7 @@ def get_database_stats() -> dict:
         conn.close()
 
 
-def get_latest_limits() -> Optional[dict]:
+def get_latest_limits() -> dict | None:
     conn = connect_remote()
     try:
         row = conn.execute("""
