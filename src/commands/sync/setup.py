@@ -5,16 +5,57 @@ Interactive wizard for configuring storage format and sync provider.
 Supports non-interactive mode via CLI flags.
 """
 #region Imports
-from typing import Optional
+import shutil
+import subprocess
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 from rich.table import Table
-from rich.text import Text
 
 from src.config import user_config
+
+#endregion
+
+
+#region Helpers
+
+
+def _fab_get_id(path: str) -> str | None:
+    """Resolve a Fabric item id via the fab CLI; None when unavailable."""
+    if not shutil.which("fab"):
+        return None
+    try:
+        result = subprocess.run(
+            ["fab", "get", path, "-q", "id"],
+            capture_output=True, text=True, timeout=30,
+        )
+        value = result.stdout.strip().strip('"')
+        return value if user_config.UUID_PATTERN.match(value) else None
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _az_account_info() -> tuple[str | None, str | None]:
+    """Current az login's (tenant_id, upn); (None, None) when unavailable."""
+    if not shutil.which("az"):
+        return None, None
+    try:
+        result = subprocess.run(
+            ["az", "account", "show", "--query", "[tenantId, user.name]", "-o", "tsv"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return None, None
+        lines = result.stdout.strip().splitlines()
+        tenant = lines[0].strip() if lines else None
+        upn = lines[1].strip() if len(lines) > 1 else None
+        return (tenant if tenant and user_config.UUID_PATTERN.match(tenant) else None, upn or None)
+    except (subprocess.TimeoutExpired, OSError):
+        return None, None
+
+
 #endregion
 
 
@@ -182,19 +223,19 @@ def display_epilog(console: Console) -> None:
 
 
 def setup_sync_command(
-    storage: Optional[str] = typer.Option(
+    storage: str | None = typer.Option(
         None, "--storage", "-s",
         help="Storage format: sqlite or duckdb"
     ),
-    provider: Optional[str] = typer.Option(
+    provider: str | None = typer.Option(
         None, "--provider", "-p",
         help="Sync provider: syncthing, onedrive, onelake, motherduck, none"
     ),
-    device_id: Optional[str] = typer.Option(
+    device_id: str | None = typer.Option(
         None, "--device-id", "-d",
         help="Device identifier (auto-generated if not provided)"
     ),
-    device_name: Optional[str] = typer.Option(
+    device_name: str | None = typer.Option(
         None, "--device-name", "-n",
         help="Human-readable device name (hostname if not provided)"
     ),
@@ -207,21 +248,21 @@ def setup_sync_command(
         help="Auto-install missing dependencies (requires --yes)"
     ),
     # OneLake-specific
-    workspace: Optional[str] = typer.Option(
+    workspace: str | None = typer.Option(
         None, "--workspace", "-w",
         help="OneLake workspace name (for OneLake provider)"
     ),
-    lakehouse: Optional[str] = typer.Option(
+    lakehouse: str | None = typer.Option(
         None, "--lakehouse", "-l",
         help="OneLake lakehouse name (for OneLake provider)"
     ),
     # MotherDuck-specific
-    token: Optional[str] = typer.Option(
+    token: str | None = typer.Option(
         None, "--token", "-t",
         help="MotherDuck token (for MotherDuck provider)"
     ),
     # OneDrive-specific
-    onedrive_path: Optional[str] = typer.Option(
+    onedrive_path: str | None = typer.Option(
         None, "--onedrive-path",
         help="OneDrive folder path (for OneDrive provider)"
     ),
@@ -338,6 +379,31 @@ def setup_sync_command(
             "lakehouse": lakehouse,
         }
 
+        workspace_id = _fab_get_id(f"{workspace}.Workspace")
+        lakehouse_id = (
+            _fab_get_id(f"{workspace}.Workspace/{lakehouse}.Lakehouse") if workspace_id else None
+        )
+        if workspace_id and lakehouse_id:
+            sync_config["workspace_id"] = workspace_id
+            sync_config["lakehouse_id"] = lakehouse_id
+        else:
+            console.print(
+                "[yellow]Could not resolve workspace/lakehouse ids via fab; "
+                "add workspace_id and lakehouse_id to sync_config manually before pushing[/yellow]"
+            )
+
+        tenant_id, upn_default = _az_account_info()
+        if tenant_id:
+            sync_config["tenant_id"] = tenant_id
+
+        user_upn = upn_default
+        if not yes:
+            user_upn = Prompt.ask(
+                "Work email (UPN) for the devices dimension", default=upn_default or ""
+            ) or None
+        if user_upn:
+            sync_config["user_upn"] = user_upn
+
     elif selected_provider == "motherduck":
         if not token:
             if yes:
@@ -352,7 +418,7 @@ def setup_sync_command(
     elif selected_provider == "quack":
         # Quack-specific configuration
         if not yes:
-            from rich.prompt import Prompt, Confirm
+            from rich.prompt import Confirm, Prompt
             host = Prompt.ask("Remote host (Tailscale FQDN or IP)", default="your-quack-host.example.com")
             port_str = Prompt.ask("Port", default="9494")
             disable_ssl = Confirm.ask("Disable SSL? (yes if using Tailscale WireGuard)", default=True)
@@ -422,6 +488,13 @@ def setup_sync_command(
     user_config.set_storage_format(selected_storage)
     user_config.set_sync_provider(selected_provider)
     user_config.set_sync_config(selected_provider, sync_config)
+
+    # Register in the multi-sink providers list so a second provider adds to,
+    # rather than replaces, the existing sink(s).
+    if selected_provider != "none":
+        providers = user_config.get_sync_providers()
+        if selected_provider not in providers:
+            user_config.set_sync_providers(providers + [selected_provider])
 
     # Success message
     console.print()
