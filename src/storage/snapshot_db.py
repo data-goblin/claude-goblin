@@ -3,9 +3,9 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from src.models.usage_record import UsageRecord
+
 #endregion
 
 
@@ -30,32 +30,34 @@ def load_model_pricing() -> list[tuple]:
     """
     # Hardcoded fallback pricing
     fallback_pricing = [
-        ('claude-opus-4-5-20251101', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4.5 - Current flagship model'),
-        ('claude-opus-4-1-20250805', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4.1'),
-        ('claude-sonnet-4-5-20250929', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 4.5 - Current balanced model'),
-        ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 4'),
-        ('claude-haiku-4-5-20251001', 1.00, 5.00, 1.25, 0.10, 'Claude Haiku 4.5 - Fast model'),
-        ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 'Claude 3.5 Haiku - Legacy fast model'),
-        ('claude-sonnet-3-7-20250219', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 3.7 - Legacy'),
-        ('claude-opus-4-20250514', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4 - Legacy'),
-        ('<synthetic>', 0.00, 0.00, 0.00, 0.00, 'Test/synthetic model - no cost'),
+        ('claude-opus-4-5-20251101', 15.00, 75.00, 18.75, 1.50, 30.00, 'Claude Opus 4.5'),
+        ('claude-opus-4-1-20250805', 15.00, 75.00, 18.75, 1.50, 30.00, 'Claude Opus 4.1'),
+        ('claude-sonnet-4-5-20250929', 3.00, 15.00, 3.75, 0.30, 6.00, 'Claude Sonnet 4.5'),
+        ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 6.00, 'Claude Sonnet 4'),
+        ('claude-haiku-4-5-20251001', 1.00, 5.00, 1.25, 0.10, 2.00, 'Claude Haiku 4.5'),
+        ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 1.60, 'Claude 3.5 Haiku'),
+        ('claude-sonnet-3-7-20250219', 3.00, 15.00, 3.75, 0.30, 6.00, 'Claude Sonnet 3.7'),
+        ('claude-opus-4-20250514', 15.00, 75.00, 18.75, 1.50, 30.00, 'Claude Opus 4'),
+        ('<synthetic>', 0.00, 0.00, 0.00, 0.00, 0.00, 'Test/synthetic model'),
     ]
 
     try:
         # Try to load from JSON file
         json_path = Path(__file__).parent.parent / "data" / "model_pricing.json"
         if json_path.exists():
-            with open(json_path, "r", encoding="utf-8") as f:
+            with open(json_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             pricing = []
             for model_name, model_data in data.get("models", {}).items():
+                cache_write = model_data.get("cache_write_per_mtok", 0.0)
                 pricing.append((
                     model_name,
                     model_data.get("input_per_mtok", 0.0),
                     model_data.get("output_per_mtok", 0.0),
-                    model_data.get("cache_write_per_mtok", 0.0),
+                    cache_write,
                     model_data.get("cache_read_per_mtok", 0.0),
+                    model_data.get("cache_write_1h_per_mtok", round(cache_write * 1.6, 4)),
                     model_data.get("notes", ""),
                 ))
             return pricing if pricing else fallback_pricing
@@ -149,6 +151,7 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 cache_creation_tokens INTEGER NOT NULL,
                 cache_read_tokens INTEGER NOT NULL,
                 total_tokens INTEGER NOT NULL,
+                cache_creation_1h_tokens INTEGER DEFAULT 0,
                 device_id TEXT,
                 device_name TEXT,
                 device_type TEXT,
@@ -158,6 +161,13 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
 
         # Add device columns if they don't exist (for migration)
         _add_device_columns_if_missing(cursor, "usage_records")
+
+        # 1h cache-write split (bills at 2x base input vs 1.25x for 5m)
+        cursor.execute("PRAGMA table_info(usage_records)")
+        if "cache_creation_1h_tokens" not in {row[1] for row in cursor.fetchall()}:
+            cursor.execute(
+                "ALTER TABLE usage_records ADD COLUMN cache_creation_1h_tokens INTEGER DEFAULT 0"
+            )
 
         # Index for faster date-based queries
         cursor.execute("""
@@ -211,7 +221,8 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 cache_write_price_per_mtok REAL NOT NULL,
                 cache_read_price_per_mtok REAL NOT NULL,
                 last_updated TEXT NOT NULL,
-                notes TEXT
+                notes TEXT,
+                cache_write_1h_price_per_mtok REAL
             )
         """)
 
@@ -235,18 +246,24 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
         """)
 
+        cursor.execute("PRAGMA table_info(model_pricing)")
+        if "cache_write_1h_price_per_mtok" not in {row[1] for row in cursor.fetchall()}:
+            cursor.execute(
+                "ALTER TABLE model_pricing ADD COLUMN cache_write_1h_price_per_mtok REAL"
+            )
+
         # Populate pricing data from JSON file (with fallback)
         pricing_data = load_model_pricing()
 
         timestamp = datetime.now().isoformat()
-        for model_name, input_price, output_price, cache_write, cache_read, notes in pricing_data:
+        for model_name, input_price, output_price, cache_write, cache_read, cache_write_1h, notes in pricing_data:
             cursor.execute("""
                 INSERT OR REPLACE INTO model_pricing (
                     model_name, input_price_per_mtok, output_price_per_mtok,
                     cache_write_price_per_mtok, cache_read_price_per_mtok,
-                    last_updated, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (model_name, input_price, output_price, cache_write, cache_read, timestamp, notes))
+                    cache_write_1h_price_per_mtok, last_updated, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (model_name, input_price, output_price, cache_write, cache_read, cache_write_1h, timestamp, notes))
 
         conn.commit()
     finally:
@@ -257,9 +274,9 @@ def save_snapshot(
     records: list[UsageRecord],
     db_path: Path = DEFAULT_DB_PATH,
     storage_mode: str = "aggregate",
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> int:
     """
     Save usage records to the database as a snapshot.
@@ -301,6 +318,7 @@ def save_snapshot(
                 cache_creation_tokens = record.token_usage.cache_creation_tokens if record.token_usage else 0
                 cache_read_tokens = record.token_usage.cache_read_tokens if record.token_usage else 0
                 total_tokens = record.token_usage.total_tokens if record.token_usage else 0
+                cache_creation_1h = record.token_usage.cache_creation_1h_tokens if record.token_usage else 0
 
                 # Assistant rows dedupe GLOBALLY on the billed-response id
                 # (session forks replay identical responses under new session
@@ -326,13 +344,13 @@ def save_snapshot(
                             UPDATE usage_records
                             SET timestamp = ?, input_tokens = ?, output_tokens = ?,
                                 cache_creation_tokens = ?, cache_read_tokens = ?,
-                                total_tokens = ?
+                                total_tokens = ?, cache_creation_1h_tokens = ?
                             WHERE id = ?
                         """, (
                             record.timestamp.isoformat(),
                             input_tokens, output_tokens,
                             cache_creation_tokens, cache_read_tokens,
-                            total_tokens, existing[0],
+                            total_tokens, cache_creation_1h, existing[0],
                         ))
                     continue
 
@@ -343,8 +361,9 @@ def save_snapshot(
                             model, folder, git_branch, version,
                             input_tokens, output_tokens,
                             cache_creation_tokens, cache_read_tokens, total_tokens,
+                            cache_creation_1h_tokens,
                             device_id, device_name, device_type
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         record.date_key,
                         record.timestamp.isoformat(),
@@ -360,6 +379,7 @@ def save_snapshot(
                         cache_creation_tokens,
                         cache_read_tokens,
                         total_tokens,
+                        cache_creation_1h,
                         device_id,
                         device_name,
                         device_type,
@@ -526,9 +546,9 @@ def save_file_aggregate(
     file_path: Path,
     records: list[UsageRecord],
     db_path: Path = DEFAULT_DB_PATH,
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> int:
     """
     Apply one transcript file's aggregate contribution as a DELTA.
@@ -627,9 +647,9 @@ def save_limits_snapshot(
     week_reset: str,
     opus_reset: str,
     db_path: Path = DEFAULT_DB_PATH,
-    device_id: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_type: Optional[str] = None,
+    device_id: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
 ) -> None:
     """
     Save usage limits snapshot to the database.
@@ -684,8 +704,8 @@ def save_limits_snapshot(
 
 
 def load_historical_records(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     db_path: Path = DEFAULT_DB_PATH
 ) -> list[UsageRecord]:
     """
@@ -772,8 +792,8 @@ def load_historical_records(
 
 def _load_from_daily_snapshots(
     cursor: sqlite3.Cursor,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> list[UsageRecord]:
     """
     Load records from daily_snapshots table and convert to synthetic UsageRecord objects.
@@ -843,11 +863,11 @@ def get_text_analysis_stats(db_path: Path = DEFAULT_DB_PATH) -> dict:
     from src.config.settings import get_claude_jsonl_files
     from src.data.jsonl_parser import parse_all_jsonl_files
     from src.utils.text_analysis import (
-        count_swears,
-        count_perfect_phrases,
         count_absolutely_right_phrases,
-        count_thank_phrases,
+        count_perfect_phrases,
         count_please_phrases,
+        count_swears,
+        count_thank_phrases,
     )
 
     try:
@@ -1172,7 +1192,9 @@ def get_database_stats(db_path: Path = DEFAULT_DB_PATH) -> dict:
                     mp.input_price_per_mtok,
                     mp.output_price_per_mtok,
                     mp.cache_write_price_per_mtok,
-                    mp.cache_read_price_per_mtok
+                    mp.cache_read_price_per_mtok,
+                    SUM(COALESCE(ur.cache_creation_1h_tokens, 0)) as total_cache_write_1h,
+                    mp.cache_write_1h_price_per_mtok
                 FROM usage_records ur
                 LEFT JOIN model_pricing mp ON ur.model = mp.model_name
                 WHERE ur.model IS NOT NULL
@@ -1185,18 +1207,22 @@ def get_database_stats(db_path: Path = DEFAULT_DB_PATH) -> dict:
                 output_tokens = row[2] or 0
                 cache_write_tokens = row[3] or 0
                 cache_read_tokens = row[4] or 0
+                cache_write_1h_tokens = row[9] or 0
 
-                # Pricing per million tokens
+                # Pricing per million tokens; 1h cache writes bill at 2x base
+                # input (vs 1.25x for the 5m tier)
                 input_price = row[5] or 0.0
                 output_price = row[6] or 0.0
                 cache_write_price = row[7] or 0.0
                 cache_read_price = row[8] or 0.0
+                cache_write_1h_price = row[10] if row[10] is not None else cache_write_price * 1.6
 
                 # Calculate cost in dollars
                 model_cost = (
                     (input_tokens / 1_000_000) * input_price +
                     (output_tokens / 1_000_000) * output_price +
-                    (cache_write_tokens / 1_000_000) * cache_write_price +
+                    ((cache_write_tokens - cache_write_1h_tokens) / 1_000_000) * cache_write_price +
+                    (cache_write_1h_tokens / 1_000_000) * cache_write_1h_price +
                     (cache_read_tokens / 1_000_000) * cache_read_price
                 )
 
@@ -1306,7 +1332,7 @@ def update_files_metadata(
     file_paths: list[Path],
     record_count: int = 0,
     db_path: Path = DEFAULT_DB_PATH,
-    stats: Optional[dict[str, tuple[int, int]]] = None,
+    stats: dict[str, tuple[int, int]] | None = None,
 ) -> None:
     """
     Upsert parse metadata for many files in a single connection.
@@ -1440,7 +1466,8 @@ def fill_empty_daily_snapshots(
     Insert zero-usage daily_snapshots rows for any date in [start_date, end_date]
     that does not already have a row. Returns the number of rows inserted.
     """
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
 
     init_database(db_path)
     conn = sqlite3.connect(db_path)

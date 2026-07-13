@@ -37,13 +37,15 @@ TABLES: dict[str, list[tuple[str, str]]] = {
         ("folder", "string"), ("git_branch", "string"),
         ("records", "int64"), ("sessions", "int64"),
         ("input_tokens", "int64"), ("output_tokens", "int64"),
-        ("cache_creation_tokens", "int64"), ("cache_read_tokens", "int64"),
+        ("cache_creation_tokens", "int64"), ("cache_creation_1h_tokens", "int64"),
+        ("cache_read_tokens", "int64"),
         ("total_tokens", "int64"), ("last_updated", "dateTime"),
     ],
     "model_pricing": [
         ("model_name", "string"),
         ("input_price_per_mtok", "double"), ("output_price_per_mtok", "double"),
         ("cache_write_price_per_mtok", "double"), ("cache_read_price_per_mtok", "double"),
+        ("cache_write_1h_price_per_mtok", "double"),
         ("last_updated", "string"), ("notes", "string"),
     ],
     "devices": [
@@ -66,7 +68,8 @@ MEASURES: list[tuple[str, str, str]] = [
         "    usage_daily,\n"
         "    DIVIDE(usage_daily[input_tokens], 1e6) * RELATED(model_pricing[input_price_per_mtok])\n"
         "        + DIVIDE(usage_daily[output_tokens], 1e6) * RELATED(model_pricing[output_price_per_mtok])\n"
-        "        + DIVIDE(usage_daily[cache_creation_tokens], 1e6) * RELATED(model_pricing[cache_write_price_per_mtok])\n"
+        "        + DIVIDE(usage_daily[cache_creation_tokens] - usage_daily[cache_creation_1h_tokens], 1e6) * RELATED(model_pricing[cache_write_price_per_mtok])\n"
+        "        + DIVIDE(usage_daily[cache_creation_1h_tokens], 1e6) * RELATED(model_pricing[cache_write_1h_price_per_mtok])\n"
         "        + DIVIDE(usage_daily[cache_read_tokens], 1e6) * RELATED(model_pricing[cache_read_price_per_mtok])\n"
         ")",
         "\\$#,0.00",

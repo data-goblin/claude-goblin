@@ -1,118 +1,134 @@
 {
   "last_updated": "2026-07-13",
-  "source": "https://www.anthropic.com/pricing",
+  "source": "https://claude.com/pricing (charged API rates; cache 5m=1.25x, 1h=2x, read=0.1x)",
   "models": {
     "claude-fable-5": {
       "input_per_mtok": 10.0,
       "output_per_mtok": 50.0,
       "cache_write_per_mtok": 12.5,
       "cache_read_per_mtok": 1.0,
-      "notes": "Claude Fable 5"
+      "notes": "Claude Fable 5",
+      "cache_write_1h_per_mtok": 20.0
     },
     "claude-opus-4-8": {
       "input_per_mtok": 5.0,
       "output_per_mtok": 25.0,
       "cache_write_per_mtok": 6.25,
       "cache_read_per_mtok": 0.5,
-      "notes": "Claude Opus 4.8"
+      "notes": "Claude Opus 4.8",
+      "cache_write_1h_per_mtok": 10.0
     },
     "claude-opus-4-7": {
       "input_per_mtok": 5.0,
       "output_per_mtok": 25.0,
       "cache_write_per_mtok": 6.25,
       "cache_read_per_mtok": 0.5,
-      "notes": "Claude Opus 4.7"
+      "notes": "Claude Opus 4.7",
+      "cache_write_1h_per_mtok": 10.0
     },
     "claude-opus-4-6": {
       "input_per_mtok": 5.0,
       "output_per_mtok": 25.0,
       "cache_write_per_mtok": 6.25,
       "cache_read_per_mtok": 0.5,
-      "notes": "Claude Opus 4.6"
+      "notes": "Claude Opus 4.6",
+      "cache_write_1h_per_mtok": 10.0
     },
     "claude-sonnet-5": {
-      "input_per_mtok": 3.0,
-      "output_per_mtok": 15.0,
-      "cache_write_per_mtok": 3.75,
-      "cache_read_per_mtok": 0.3,
-      "notes": "Claude Sonnet 5"
+      "input_per_mtok": 2.0,
+      "output_per_mtok": 10.0,
+      "cache_write_per_mtok": 2.5,
+      "cache_read_per_mtok": 0.2,
+      "notes": "Claude Sonnet 5 (intro pricing until 2026-08-31; then 3/15/3.75/0.30)",
+      "cache_write_1h_per_mtok": 4.0
     },
     "claude-sonnet-4-6": {
       "input_per_mtok": 3.0,
       "output_per_mtok": 15.0,
       "cache_write_per_mtok": 3.75,
       "cache_read_per_mtok": 0.3,
-      "notes": "Claude Sonnet 4.6"
+      "notes": "Claude Sonnet 4.6",
+      "cache_write_1h_per_mtok": 6.0
     },
     "claude-haiku-4-5": {
       "input_per_mtok": 1.0,
       "output_per_mtok": 5.0,
       "cache_write_per_mtok": 1.25,
       "cache_read_per_mtok": 0.1,
-      "notes": "Claude Haiku 4.5"
+      "notes": "Claude Haiku 4.5",
+      "cache_write_1h_per_mtok": 2.0
     },
     "claude-opus-4-5-20251101": {
       "input_per_mtok": 15.0,
       "output_per_mtok": 75.0,
       "cache_write_per_mtok": 18.75,
       "cache_read_per_mtok": 1.5,
-      "notes": "Claude Opus 4.5"
+      "notes": "Claude Opus 4.5",
+      "cache_write_1h_per_mtok": 30.0
     },
     "claude-opus-4-1-20250805": {
       "input_per_mtok": 15.0,
       "output_per_mtok": 75.0,
       "cache_write_per_mtok": 18.75,
       "cache_read_per_mtok": 1.5,
-      "notes": "Claude Opus 4.1"
+      "notes": "Claude Opus 4.1",
+      "cache_write_1h_per_mtok": 30.0
     },
     "claude-sonnet-4-5-20250929": {
       "input_per_mtok": 3.0,
       "output_per_mtok": 15.0,
       "cache_write_per_mtok": 3.75,
       "cache_read_per_mtok": 0.3,
-      "notes": "Claude Sonnet 4.5"
+      "notes": "Claude Sonnet 4.5",
+      "cache_write_1h_per_mtok": 6.0
     },
     "claude-sonnet-4-20250514": {
       "input_per_mtok": 3.0,
       "output_per_mtok": 15.0,
       "cache_write_per_mtok": 3.75,
       "cache_read_per_mtok": 0.3,
-      "notes": "Claude Sonnet 4"
+      "notes": "Claude Sonnet 4",
+      "cache_write_1h_per_mtok": 6.0
     },
     "claude-haiku-4-5-20251001": {
       "input_per_mtok": 1.0,
       "output_per_mtok": 5.0,
       "cache_write_per_mtok": 1.25,
       "cache_read_per_mtok": 0.1,
-      "notes": "Claude Haiku 4.5 - Fast model"
+      "notes": "Claude Haiku 4.5 - Fast model",
+      "cache_write_1h_per_mtok": 2.0
     },
     "claude-haiku-3-5-20241022": {
       "input_per_mtok": 0.8,
       "output_per_mtok": 4.0,
       "cache_write_per_mtok": 1.0,
       "cache_read_per_mtok": 0.08,
-      "notes": "Claude 3.5 Haiku - Legacy fast model"
+      "notes": "Claude 3.5 Haiku - Legacy fast model",
+      "cache_write_1h_per_mtok": 1.6
     },
     "claude-sonnet-3-7-20250219": {
       "input_per_mtok": 3.0,
       "output_per_mtok": 15.0,
       "cache_write_per_mtok": 3.75,
       "cache_read_per_mtok": 0.3,
-      "notes": "Claude Sonnet 3.7 - Legacy"
+      "notes": "Claude Sonnet 3.7 - Legacy",
+      "cache_write_1h_per_mtok": 6.0
     },
     "claude-opus-4-20250514": {
       "input_per_mtok": 15.0,
       "output_per_mtok": 75.0,
       "cache_write_per_mtok": 18.75,
       "cache_read_per_mtok": 1.5,
-      "notes": "Claude Opus 4 - Legacy"
+      "notes": "Claude Opus 4 - Legacy",
+      "cache_write_1h_per_mtok": 30.0
     },
     "<synthetic>": {
       "input_per_mtok": 0.0,
       "output_per_mtok": 0.0,
       "cache_write_per_mtok": 0.0,
       "cache_read_per_mtok": 0.0,
-      "notes": "Test/synthetic model - no cost"
+      "notes": "Test/synthetic model - no cost",
+      "cache_write_1h_per_mtok": 0.0
     }
   }
 }

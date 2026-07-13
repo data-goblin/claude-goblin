@@ -116,12 +116,20 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 cache_creation_tokens INTEGER NOT NULL,
                 cache_read_tokens INTEGER NOT NULL,
                 total_tokens INTEGER NOT NULL,
+                cache_creation_1h_tokens INTEGER DEFAULT 0,
                 device_id VARCHAR,
                 device_name VARCHAR,
                 device_type VARCHAR,
                 UNIQUE(session_id, message_uuid)
             )
         """)
+
+        # 1-hour cache writes bill at 2x base input (5m at 1.25x); the split
+        # column migrates in for pre-existing databases
+        conn.execute(
+            "ALTER TABLE usage_records ADD COLUMN IF NOT EXISTS "
+            "cache_creation_1h_tokens INTEGER DEFAULT 0"
+        )
 
         # Create sequence for auto-increment if not exists
         conn.execute("""
@@ -181,39 +189,47 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 cache_write_price_per_mtok DOUBLE NOT NULL,
                 cache_read_price_per_mtok DOUBLE NOT NULL,
                 last_updated VARCHAR NOT NULL,
-                notes VARCHAR
+                notes VARCHAR,
+                cache_write_1h_price_per_mtok DOUBLE
             )
         """)
 
-        # Populate pricing data for known models
+        conn.execute(
+            "ALTER TABLE model_pricing ADD COLUMN IF NOT EXISTS "
+            "cache_write_1h_price_per_mtok DOUBLE"
+        )
+
+        # Charged API rates (console.anthropic.com): cache writes 1.25x (5m) /
+        # 2x (1h) base input, cache reads 0.1x. Sonnet 5 carries introductory
+        # pricing until 2026-08-31 - revert to 3.00/15.00/3.75/6.00/0.30 after.
         pricing_data = [
-            ('claude-fable-5', 10.00, 50.00, 12.50, 1.00, 'Claude Fable 5'),
-            ('claude-opus-4-8', 5.00, 25.00, 6.25, 0.50, 'Claude Opus 4.8'),
-            ('claude-opus-4-7', 5.00, 25.00, 6.25, 0.50, 'Claude Opus 4.7'),
-            ('claude-opus-4-6', 5.00, 25.00, 6.25, 0.50, 'Claude Opus 4.6'),
-            ('claude-sonnet-5', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 5'),
-            ('claude-sonnet-4-6', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 4.6'),
-            ('claude-haiku-4-5', 1.00, 5.00, 1.25, 0.10, 'Claude Haiku 4.5'),
-            ('claude-opus-4-5-20251101', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4.5'),
-            ('claude-opus-4-1-20250805', 15.00, 75.00, 18.75, 1.50, 'Claude Opus 4.1'),
-            ('claude-sonnet-4-5-20250929', 3.00, 15.00, 3.75, 0.30, 'Claude Sonnet 4.5'),
-            ('claude-haiku-4-5-20251001', 1.00, 5.00, 1.25, 0.10, 'Claude Haiku 4.5'),
-            ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 'Claude 3.5 Haiku'),
-            ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 'Legacy Sonnet 4'),
-            ('claude-opus-4-20250514', 15.00, 75.00, 18.75, 1.50, 'Legacy Opus 4'),
-            ('claude-sonnet-3-7-20250219', 3.00, 15.00, 3.75, 0.30, 'Legacy Sonnet 3.7'),
-            ('<synthetic>', 0.00, 0.00, 0.00, 0.00, 'Test/synthetic model'),
+            ('claude-fable-5', 10.00, 50.00, 12.50, 1.00, 20.00, 'Claude Fable 5'),
+            ('claude-opus-4-8', 5.00, 25.00, 6.25, 0.50, 10.00, 'Claude Opus 4.8'),
+            ('claude-opus-4-7', 5.00, 25.00, 6.25, 0.50, 10.00, 'Claude Opus 4.7'),
+            ('claude-opus-4-6', 5.00, 25.00, 6.25, 0.50, 10.00, 'Claude Opus 4.6'),
+            ('claude-sonnet-5', 2.00, 10.00, 2.50, 0.20, 4.00, 'Claude Sonnet 5 (intro pricing until 2026-08-31)'),
+            ('claude-sonnet-4-6', 3.00, 15.00, 3.75, 0.30, 6.00, 'Claude Sonnet 4.6'),
+            ('claude-haiku-4-5', 1.00, 5.00, 1.25, 0.10, 2.00, 'Claude Haiku 4.5'),
+            ('claude-opus-4-5-20251101', 15.00, 75.00, 18.75, 1.50, 30.00, 'Claude Opus 4.5'),
+            ('claude-opus-4-1-20250805', 15.00, 75.00, 18.75, 1.50, 30.00, 'Claude Opus 4.1'),
+            ('claude-sonnet-4-5-20250929', 3.00, 15.00, 3.75, 0.30, 6.00, 'Claude Sonnet 4.5'),
+            ('claude-haiku-4-5-20251001', 1.00, 5.00, 1.25, 0.10, 2.00, 'Claude Haiku 4.5'),
+            ('claude-haiku-3-5-20241022', 0.80, 4.00, 1.00, 0.08, 1.60, 'Claude 3.5 Haiku'),
+            ('claude-sonnet-4-20250514', 3.00, 15.00, 3.75, 0.30, 6.00, 'Legacy Sonnet 4'),
+            ('claude-opus-4-20250514', 15.00, 75.00, 18.75, 1.50, 30.00, 'Legacy Opus 4'),
+            ('claude-sonnet-3-7-20250219', 3.00, 15.00, 3.75, 0.30, 6.00, 'Legacy Sonnet 3.7'),
+            ('<synthetic>', 0.00, 0.00, 0.00, 0.00, 0.00, 'Test/synthetic model'),
         ]
 
         timestamp = datetime.now().isoformat()
-        for model_name, input_price, output_price, cache_write, cache_read, notes in pricing_data:
+        for model_name, input_price, output_price, cache_write, cache_read, cache_write_1h, notes in pricing_data:
             conn.execute("""
                 INSERT OR REPLACE INTO model_pricing (
                     model_name, input_price_per_mtok, output_price_per_mtok,
                     cache_write_price_per_mtok, cache_read_price_per_mtok,
-                    last_updated, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, [model_name, input_price, output_price, cache_write, cache_read, timestamp, notes])
+                    cache_write_1h_price_per_mtok, last_updated, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, [model_name, input_price, output_price, cache_write, cache_read, cache_write_1h, timestamp, notes])
 
         # Per-file aggregate contributions ledger (aggregate storage mode):
         # what each transcript file last added to daily_snapshots, so a
@@ -425,6 +441,7 @@ def save_snapshot(
                 "version": [],
                 "input_tokens": [], "output_tokens": [],
                 "cache_creation_tokens": [], "cache_read_tokens": [], "total_tokens": [],
+                "cache_creation_1h_tokens": [],
             }
             for record in records:
                 tu = record.token_usage
@@ -442,6 +459,7 @@ def save_snapshot(
                 cols["cache_creation_tokens"].append(tu.cache_creation_tokens if tu else 0)
                 cols["cache_read_tokens"].append(tu.cache_read_tokens if tu else 0)
                 cols["total_tokens"].append(tu.total_tokens if tu else 0)
+                cols["cache_creation_1h_tokens"].append(tu.cache_creation_1h_tokens if tu else 0)
 
             conn.execute("""
                 CREATE OR REPLACE TEMP TABLE staging_records (
@@ -451,7 +469,7 @@ def save_snapshot(
                     folder VARCHAR, git_branch VARCHAR, version VARCHAR,
                     input_tokens INTEGER, output_tokens INTEGER,
                     cache_creation_tokens INTEGER, cache_read_tokens INTEGER,
-                    total_tokens INTEGER
+                    total_tokens INTEGER, cache_creation_1h_tokens INTEGER
                 )
             """)
 
@@ -467,7 +485,7 @@ def save_snapshot(
                 for i in range(0, len(rows), chunk):
                     batch = rows[i:i + chunk]
                     conn.executemany(
-                        "INSERT INTO staging_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO staging_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         batch,
                     )
 
@@ -485,7 +503,8 @@ def save_snapshot(
                     output_tokens = b.output_tokens,
                     cache_creation_tokens = b.cache_creation_tokens,
                     cache_read_tokens = b.cache_read_tokens,
-                    total_tokens = b.total_tokens
+                    total_tokens = b.total_tokens,
+                    cache_creation_1h_tokens = b.cache_creation_1h_tokens
                 FROM (
                     SELECT * FROM staging_records s
                     WHERE s.message_type = 'assistant'
@@ -511,6 +530,7 @@ def save_snapshot(
                     model, folder, git_branch, version,
                     input_tokens, output_tokens,
                     cache_creation_tokens, cache_read_tokens, total_tokens,
+                    cache_creation_1h_tokens,
                     device_id, device_name, device_type
                 )
                 SELECT
@@ -519,6 +539,7 @@ def save_snapshot(
                     s.model, s.folder, s.git_branch, s.version,
                     s.input_tokens, s.output_tokens,
                     s.cache_creation_tokens, s.cache_read_tokens, s.total_tokens,
+                    s.cache_creation_1h_tokens,
                     ?, ?, ?
                 FROM staging_records s
                 WHERE NOT EXISTS (
@@ -873,17 +894,20 @@ def get_database_stats(db_path: Path = DEFAULT_DB_PATH) -> dict:
                     ur.model,
                     SUM(ur.input_tokens) as total_input,
                     SUM(ur.output_tokens) as total_output,
-                    SUM(ur.cache_creation_tokens) as total_cache_write,
+                    SUM(ur.cache_creation_tokens - ur.cache_creation_1h_tokens) as total_cache_write_5m,
                     SUM(ur.cache_read_tokens) as total_cache_read,
                     mp.input_price_per_mtok,
                     mp.output_price_per_mtok,
                     mp.cache_write_price_per_mtok,
-                    mp.cache_read_price_per_mtok
+                    mp.cache_read_price_per_mtok,
+                    SUM(ur.cache_creation_1h_tokens) as total_cache_write_1h,
+                    mp.cache_write_1h_price_per_mtok
                 FROM usage_records ur
                 LEFT JOIN model_pricing mp ON ur.model = mp.model_name
                 WHERE ur.model IS NOT NULL
                 GROUP BY ur.model, mp.input_price_per_mtok, mp.output_price_per_mtok,
-                         mp.cache_write_price_per_mtok, mp.cache_read_price_per_mtok
+                         mp.cache_write_price_per_mtok, mp.cache_read_price_per_mtok,
+                         mp.cache_write_1h_price_per_mtok
             """).fetchall()
 
             for row in cost_rows:
@@ -897,10 +921,13 @@ def get_database_stats(db_path: Path = DEFAULT_DB_PATH) -> dict:
                 cache_write_price = row[7] or 0.0
                 cache_read_price = row[8] or 0.0
 
+                cache_write_1h_tokens = row[9] or 0
+                cache_write_1h_price = row[10] if row[10] is not None else cache_write_price * 1.6
                 model_cost = (
                     (input_tokens / 1_000_000) * input_price +
                     (output_tokens / 1_000_000) * output_price +
                     (cache_write_tokens / 1_000_000) * cache_write_price +
+                    (cache_write_1h_tokens / 1_000_000) * cache_write_1h_price +
                     (cache_read_tokens / 1_000_000) * cache_read_price
                 )
 

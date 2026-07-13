@@ -1,7 +1,7 @@
 #region Imports
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+
 #endregion
 
 
@@ -24,6 +24,7 @@ class TokenUsage:
     output_tokens: int
     cache_creation_tokens: int
     cache_read_tokens: int
+    cache_creation_1h_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -59,12 +60,12 @@ class UsageRecord:
     session_id: str
     message_uuid: str
     message_type: str
-    model: Optional[str]
+    model: str | None
     folder: str
-    git_branch: Optional[str]
+    git_branch: str | None
     version: str
-    token_usage: Optional[TokenUsage]
-    content: Optional[str] = None
+    token_usage: TokenUsage | None
+    content: str | None = None
     char_count: int = 0
 
     @property

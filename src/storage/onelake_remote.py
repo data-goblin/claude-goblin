@@ -65,6 +65,7 @@ _USAGE_DAILY_SELECT = """
         CAST(SUM(input_tokens) AS BIGINT) AS input_tokens,
         CAST(SUM(output_tokens) AS BIGINT) AS output_tokens,
         CAST(SUM(cache_creation_tokens) AS BIGINT) AS cache_creation_tokens,
+        CAST(SUM(COALESCE(cache_creation_1h_tokens, 0)) AS BIGINT) AS cache_creation_1h_tokens,
         CAST(SUM(cache_read_tokens) AS BIGINT) AS cache_read_tokens,
         CAST(SUM(total_tokens) AS BIGINT) AS total_tokens
     FROM usage_records

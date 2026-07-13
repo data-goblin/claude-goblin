@@ -1,10 +1,11 @@
 #region Imports
 import json
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
 
 from src.models.usage_record import TokenUsage, UsageRecord
+
 #endregion
 
 
@@ -33,7 +34,7 @@ def parse_jsonl_file(file_path: Path) -> Iterator[UsageRecord]:
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         for line_num, line in enumerate(f, start=1):
             line = line.strip()
             if not line:
@@ -115,7 +116,7 @@ def dedupe_records(records: list[UsageRecord]) -> list[UsageRecord]:
     return others + [best[key] for key in order]
 
 
-def _parse_record(data: dict) -> Optional[UsageRecord]:
+def _parse_record(data: dict) -> UsageRecord | None:
     """
     Parse a single JSON record into a UsageRecord.
 
@@ -198,6 +199,7 @@ def _parse_record(data: dict) -> Optional[UsageRecord]:
                 output_tokens=usage_data.get("output_tokens", 0),
                 cache_creation_tokens=cache_creation_tokens,
                 cache_read_tokens=usage_data.get("cache_read_input_tokens", 0),
+                cache_creation_1h_tokens=cache_creation.get("ephemeral_1h_input_tokens", 0),
             )
 
     return UsageRecord(

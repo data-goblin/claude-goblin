@@ -152,6 +152,7 @@ def init_remote_schema(conn: "duckdb.DuckDBPyConnection") -> None:
             cache_creation_tokens INTEGER NOT NULL,
             cache_read_tokens INTEGER NOT NULL,
             total_tokens INTEGER NOT NULL,
+            cache_creation_1h_tokens INTEGER DEFAULT 0,
             device_id VARCHAR,
             device_name VARCHAR,
             device_type VARCHAR,
@@ -200,9 +201,21 @@ def init_remote_schema(conn: "duckdb.DuckDBPyConnection") -> None:
             cache_write_price_per_mtok DOUBLE NOT NULL,
             cache_read_price_per_mtok DOUBLE NOT NULL,
             last_updated VARCHAR NOT NULL,
-            notes VARCHAR
+            notes VARCHAR,
+            cache_write_1h_price_per_mtok DOUBLE
         )
     """)
+    # Best-effort migration for remotes created before the 1h cache-write
+    # split; quack may not pass ALTER through, in which case a fresh remote
+    # file (created with the schema above) is the migration path.
+    for stmt in (
+        "ALTER TABLE remote.usage_records ADD COLUMN IF NOT EXISTS cache_creation_1h_tokens INTEGER DEFAULT 0",
+        "ALTER TABLE remote.model_pricing ADD COLUMN IF NOT EXISTS cache_write_1h_price_per_mtok DOUBLE",
+    ):
+        try:
+            conn.execute(stmt)
+        except duckdb.Error:
+            pass
 
 
 #endregion
@@ -228,6 +241,7 @@ _USAGE_COLS = (
     "model, folder, git_branch, version, "
     "input_tokens, output_tokens, "
     "cache_creation_tokens, cache_read_tokens, total_tokens, "
+    "cache_creation_1h_tokens, "
     "device_id, device_name, device_type"
 )
 
@@ -611,18 +625,23 @@ def get_database_stats() -> dict:
                     SUM(ur.input_tokens), SUM(ur.output_tokens),
                     SUM(ur.cache_creation_tokens), SUM(ur.cache_read_tokens),
                     mp.input_price_per_mtok, mp.output_price_per_mtok,
-                    mp.cache_write_price_per_mtok, mp.cache_read_price_per_mtok
+                    mp.cache_write_price_per_mtok, mp.cache_read_price_per_mtok,
+                    SUM(COALESCE(ur.cache_creation_1h_tokens, 0)),
+                    mp.cache_write_1h_price_per_mtok
                 FROM remote.usage_records ur
                 LEFT JOIN remote.model_pricing mp ON ur.model = mp.model_name
                 WHERE ur.model IS NOT NULL
                 GROUP BY ur.model, mp.input_price_per_mtok, mp.output_price_per_mtok,
-                         mp.cache_write_price_per_mtok, mp.cache_read_price_per_mtok
+                         mp.cache_write_price_per_mtok, mp.cache_read_price_per_mtok,
+                         mp.cache_write_1h_price_per_mtok
             """).fetchall()
             for row in cost_rows:
+                write_1h_price = row[10] if row[10] is not None else (row[7] or 0) * 1.6
                 model_cost = (
                     ((row[1] or 0) / 1_000_000) * (row[5] or 0) +
                     ((row[2] or 0) / 1_000_000) * (row[6] or 0) +
-                    ((row[3] or 0) / 1_000_000) * (row[7] or 0) +
+                    (((row[3] or 0) - (row[9] or 0)) / 1_000_000) * (row[7] or 0) +
+                    ((row[9] or 0) / 1_000_000) * write_1h_price +
                     ((row[4] or 0) / 1_000_000) * (row[8] or 0)
                 )
                 cost_by_model[row[0]] = model_cost
