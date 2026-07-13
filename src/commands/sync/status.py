@@ -28,12 +28,13 @@ def check_onedrive_path(path: str) -> bool:
 
 def check_fab_auth() -> bool:
     """Check if Fabric CLI is authenticated."""
-    if not shutil.which("fab"):
+    fab = shutil.which("fab")
+    if not fab:
         return False
 
     try:
         result = subprocess.run(
-            ["fab", "auth", "status"],
+            [fab, "auth", "status"],
             capture_output=True,
             text=True,
             timeout=10,

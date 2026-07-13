@@ -1,13 +1,16 @@
 """
 OneLake Delta sync sink for Claude Goblin.
 
-Pushes local usage data to Delta tables in a Microsoft Fabric lakehouse via
-delta-rs, mirroring the quack sink's watermark-incremental, dedupe-on-merge
-semantics. Auth reuses the machine's `az login` session (bearer token in
+Pushes usage data to Delta tables in a Microsoft Fabric lakehouse via
+delta-rs, keeping the quack sink's watermark-incremental semantics. Only
+aggregates leave the machine: the lakehouse gets daily per-device per-model
+token totals, never message-grain rows (no session ids, folder paths, or
+branches). Auth reuses the machine's `az login` session (bearer token in
 memory only, never on disk).
 """
 #region Imports
 import json
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -46,19 +49,24 @@ _DEFAULT_PUSH_INTERVAL = 900
 _DEFAULT_COMPACT_EVERY = 50
 _VACUUM_RETENTION_HOURS = 168
 
-_USAGE_SELECT = """
+# Full-day re-aggregation per (date, device, model, folder, branch):
+# incremental pushes recompute every affected day's totals so the merge's
+# update replaces rows with correct absolutes rather than partial increments.
+# NULL dimensions coalesce to '' so merge predicates match on re-push.
+_USAGE_DAILY_SELECT = """
     SELECT
-        id,
         CAST(date AS DATE) AS date,
-        CAST(timestamp AS TIMESTAMPTZ) AS timestamp,
-        session_id, message_uuid, message_type, model, folder,
-        git_branch, version,
-        CAST(input_tokens AS BIGINT) AS input_tokens,
-        CAST(output_tokens AS BIGINT) AS output_tokens,
-        CAST(cache_creation_tokens AS BIGINT) AS cache_creation_tokens,
-        CAST(cache_read_tokens AS BIGINT) AS cache_read_tokens,
-        CAST(total_tokens AS BIGINT) AS total_tokens,
-        device_id, device_name, device_type
+        device_id,
+        COALESCE(model, '<none>') AS model,
+        COALESCE(folder, '') AS folder,
+        COALESCE(git_branch, '') AS git_branch,
+        CAST(COUNT(*) AS BIGINT) AS records,
+        CAST(COUNT(DISTINCT session_id) AS BIGINT) AS sessions,
+        CAST(SUM(input_tokens) AS BIGINT) AS input_tokens,
+        CAST(SUM(output_tokens) AS BIGINT) AS output_tokens,
+        CAST(SUM(cache_creation_tokens) AS BIGINT) AS cache_creation_tokens,
+        CAST(SUM(cache_read_tokens) AS BIGINT) AS cache_read_tokens,
+        CAST(SUM(total_tokens) AS BIGINT) AS total_tokens
     FROM usage_records
 """
 
@@ -101,7 +109,12 @@ def _get_az_token(resource: str, tenant_id: str | None) -> str:
     The token stays in memory; the tenant pin avoids minting against whatever
     tenant happens to be the ambient az default on multi-tenant machines.
     """
-    args = ["az", "account", "get-access-token", "--resource", resource,
+    # Resolve the executable so Windows finds az.cmd (bare names skip
+    # PATHEXT resolution under CreateProcess).
+    az = shutil.which("az")
+    if az is None:
+        raise RuntimeError("az CLI not found on PATH. Install Azure CLI and run: az login")
+    args = [az, "account", "get-access-token", "--resource", resource,
             "--query", "accessToken", "-o", "tsv"]
     if tenant_id:
         args += ["--tenant", tenant_id]
@@ -220,18 +233,33 @@ def _fetch_batches(
     device_filter: list[str] | None,
     accounts: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
-    """Read the outgoing usage/pricing/devices/limits Arrow batches."""
+    """Read the outgoing daily-aggregate/pricing/devices/limits Arrow batches."""
     import duckdb
 
     where, params = _device_where(device_filter)
     conn = duckdb.connect(str(local_db_path), read_only=True)
     try:
-        usage_sql = f"{_USAGE_SELECT} WHERE 1=1 {where}"
+        usage_sql = f"{_USAGE_DAILY_SELECT} WHERE 1=1 {where}"
         usage_params = list(params)
+        new_underlying = 0
         if wm_id is not None:
-            usage_sql += " AND id > ?"
-            usage_params.append(str(wm_id))
-        usage = conn.execute(usage_sql + " ORDER BY id", usage_params).to_arrow_table()
+            # Incremental: re-aggregate only days that gained rows.
+            usage_sql += (
+                f" AND date IN (SELECT DISTINCT date FROM usage_records WHERE id > ? {where})"
+            )
+            usage_params += [str(wm_id), *params]
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM usage_records WHERE id > ? {where}",
+                [str(wm_id), *params],
+            ).fetchone()
+            new_underlying = int(row[0]) if row else 0
+        else:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM usage_records WHERE 1=1 {where}", params
+            ).fetchone()
+            new_underlying = int(row[0]) if row else 0
+        usage_sql += " GROUP BY 1, 2, 3, 4, 5 ORDER BY 1, 2, 3, 4, 5"
+        usage = conn.execute(usage_sql, usage_params).to_arrow_table()
 
         pricing = conn.execute("SELECT * FROM model_pricing").to_arrow_table()
 
@@ -249,6 +277,9 @@ def _fetch_batches(
         conn.close()
 
     now = datetime.now(timezone.utc)
+    usage = usage.append_column(
+        "last_updated", pa.array([now] * usage.num_rows, type=pa.timestamp("us", tz="UTC"))
+    )
     devices = pa.table({
         "device_id": [r[0] for r in device_rows],
         "device_name": [r[1] for r in device_rows],
@@ -259,7 +290,13 @@ def _fetch_batches(
         "last_push_at": pa.array([now] * len(device_rows), type=pa.timestamp("us", tz="UTC")),
     })
 
-    return {"usage": usage, "pricing": pricing, "devices": devices, "limits": limits}
+    return {
+        "usage": usage,
+        "pricing": pricing,
+        "devices": devices,
+        "limits": limits,
+        "new_underlying": new_underlying,
+    }
 
 
 def _maybe_compact(
@@ -369,12 +406,15 @@ def push_to_onelake(
 
     new_records = 0
     if new_usage or full:
-        new_records = _upsert(
-            _table_uri(config, "usage_records"),
+        _upsert(
+            _table_uri(config, "usage_daily"),
             batches["usage"],
-            "s.session_id = t.session_id AND s.message_uuid = t.message_uuid",
+            "s.date = t.date AND s.device_id = t.device_id AND s.model = t.model"
+            " AND s.folder = t.folder AND s.git_branch = t.git_branch",
             storage_options,
+            update_matched=True,
         )
+        new_records = int(batches["new_underlying"])
     set_sync_state(WM_USAGE_KEY, str(state["max_id"]), db_path=local_db_path)
 
     # Sidecar tables never block the usage push nor its watermark.
@@ -423,7 +463,7 @@ def push_to_onelake(
     compact_every = int(config.get("compact_every", _DEFAULT_COMPACT_EVERY))
     if compact_every > 0 and push_count % compact_every == 0:
         handles: dict[str, DeltaTable | None] = {}
-        for name in ("usage_records", "devices"):
+        for name in ("usage_daily", "devices"):
             try:
                 handles[name] = DeltaTable(_table_uri(config, name), storage_options=storage_options)
             except Exception:

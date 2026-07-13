@@ -24,11 +24,12 @@ from src.config import user_config
 
 def _fab_get_id(path: str) -> str | None:
     """Resolve a Fabric item id via the fab CLI; None when unavailable."""
-    if not shutil.which("fab"):
+    fab = shutil.which("fab")
+    if not fab:
         return None
     try:
         result = subprocess.run(
-            ["fab", "get", path, "-q", "id"],
+            [fab, "get", path, "-q", "id"],
             capture_output=True, text=True, timeout=30,
         )
         value = result.stdout.strip().strip('"')
@@ -39,11 +40,12 @@ def _fab_get_id(path: str) -> str | None:
 
 def _az_account_info() -> tuple[str | None, str | None]:
     """Current az login's (tenant_id, upn); (None, None) when unavailable."""
-    if not shutil.which("az"):
+    az = shutil.which("az")
+    if not az:
         return None, None
     try:
         result = subprocess.run(
-            ["az", "account", "show", "--query", "[tenantId, user.name]", "-o", "tsv"],
+            [az, "account", "show", "--query", "[tenantId, user.name]", "-o", "tsv"],
             capture_output=True, text=True, timeout=15,
         )
         if result.returncode != 0:

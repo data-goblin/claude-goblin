@@ -172,7 +172,9 @@ ccg sync push
 ```
 
 Setup resolves and stores your workspace/lakehouse ids and tenant via fab/az.
-Pushes merge `usage_records`, `model_pricing`, and a `devices` dimension
+Pushes merge `usage_daily` (daily aggregates per device, model, project
+folder, and git branch - token totals and counts only, never message
+content or session/message ids), `model_pricing`, and a `devices` dimension
 (device -> user/organization/subscription attribution) into Delta tables,
 creating them on first push. Optional config keys under
 `sync_config.onelake`:
@@ -197,7 +199,7 @@ pushed tables (relationships plus token/cost measures included):
 
 ```bash
 python3 scripts/create_semantic_model.py --store-id
-ccg sync query -q 'EVALUATE ROW("Cost", [Est API Cost], "Tokens", [Total Tokens])'
+ccg sync query -q 'EVALUATE ROW("Cost", [Est API Cost], "Tokens", [Total Tokens])'  # or slice by folder/branch/model/device
 ```
 
 `Est API Cost` is an estimate at list API prices - subscription plans are

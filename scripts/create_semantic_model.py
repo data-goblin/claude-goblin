@@ -4,7 +4,7 @@ Create a Direct Lake semantic model over the ccg lakehouse tables.
 
 Reads the onelake sync config (workspace + lakehouse names), resolves the
 lakehouse's SQL endpoint via the fab CLI, generates a multi-table TMDL
-definition (usage_records, model_pricing, devices with relationships and
+definition (usage_daily, model_pricing, devices with relationships and
 cost/token measures), and imports it into the workspace. Nothing is
 hardcoded: any Fabric tenant, workspace, capacity, or lakehouse works as
 long as `fab auth login` is signed in to it.
@@ -20,6 +20,7 @@ Requirements:
 """
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,15 +32,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config.user_config import get_sync_config, set_sync_config  # noqa: E402
 
 TABLES: dict[str, list[tuple[str, str]]] = {
-    "usage_records": [
-        ("id", "int64"), ("date", "dateTime"), ("timestamp", "dateTime"),
-        ("session_id", "string"), ("message_uuid", "string"), ("message_type", "string"),
-        ("model", "string"), ("folder", "string"), ("git_branch", "string"),
-        ("version", "string"),
+    "usage_daily": [
+        ("date", "dateTime"), ("device_id", "string"), ("model", "string"),
+        ("folder", "string"), ("git_branch", "string"),
+        ("records", "int64"), ("sessions", "int64"),
         ("input_tokens", "int64"), ("output_tokens", "int64"),
         ("cache_creation_tokens", "int64"), ("cache_read_tokens", "int64"),
-        ("total_tokens", "int64"),
-        ("device_id", "string"), ("device_name", "string"), ("device_type", "string"),
+        ("total_tokens", "int64"), ("last_updated", "dateTime"),
     ],
     "model_pricing": [
         ("model_name", "string"),
@@ -55,30 +54,33 @@ TABLES: dict[str, list[tuple[str, str]]] = {
 }
 
 MEASURES: list[tuple[str, str, str]] = [
-    ("Total Tokens", "SUM(usage_records[total_tokens])", "#,0"),
+    ("Total Tokens", "SUM(usage_daily[total_tokens])", "#,0"),
     (
         "Est API Cost",
         "SUMX(\n"
-        "    usage_records,\n"
-        "    DIVIDE(usage_records[input_tokens], 1e6) * RELATED(model_pricing[input_price_per_mtok])\n"
-        "        + DIVIDE(usage_records[output_tokens], 1e6) * RELATED(model_pricing[output_price_per_mtok])\n"
-        "        + DIVIDE(usage_records[cache_creation_tokens], 1e6) * RELATED(model_pricing[cache_write_price_per_mtok])\n"
-        "        + DIVIDE(usage_records[cache_read_tokens], 1e6) * RELATED(model_pricing[cache_read_price_per_mtok])\n"
+        "    usage_daily,\n"
+        "    DIVIDE(usage_daily[input_tokens], 1e6) * RELATED(model_pricing[input_price_per_mtok])\n"
+        "        + DIVIDE(usage_daily[output_tokens], 1e6) * RELATED(model_pricing[output_price_per_mtok])\n"
+        "        + DIVIDE(usage_daily[cache_creation_tokens], 1e6) * RELATED(model_pricing[cache_write_price_per_mtok])\n"
+        "        + DIVIDE(usage_daily[cache_read_tokens], 1e6) * RELATED(model_pricing[cache_read_price_per_mtok])\n"
         ")",
         "\\$#,0.00",
     ),
-    ("Sessions", "DISTINCTCOUNT(usage_records[session_id])", "#,0"),
-    ("Active Devices", "DISTINCTCOUNT(usage_records[device_id])", "#,0"),
+    ("Total Sessions", "SUM(usage_daily[sessions])", "#,0"),
+    ("Active Devices", "DISTINCTCOUNT(usage_daily[device_id])", "#,0"),
 ]
 
 RELATIONSHIPS: list[tuple[str, str]] = [
-    ("usage_records.model", "model_pricing.model_name"),
-    ("usage_records.device_id", "devices.device_id"),
+    ("usage_daily.model", "model_pricing.model_name"),
+    ("usage_daily.device_id", "devices.device_id"),
 ]
 
 
 def fab(args: list[str]) -> str:
-    result = subprocess.run(["fab", *args], capture_output=True, text=True, timeout=120)
+    fab_bin = shutil.which("fab")
+    if not fab_bin:
+        raise SystemExit("fab CLI not found on PATH. Install: uv tool install ms-fabric-cli")
+    result = subprocess.run([fab_bin, *args], capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise SystemExit(f"fab {' '.join(args)} failed: {result.stderr.strip()[:300]}")
     return result.stdout.strip()
@@ -87,7 +89,7 @@ def fab(args: list[str]) -> str:
 def table_tmdl(name: str) -> str:
     lines = [f"table '{name}'", f"\tlineageTag: {uuid.uuid4()}",
              f"\tsourceLineageTag: [dbo].[{name}]", ""]
-    if name == "usage_records":
+    if name == "usage_daily":
         for measure_name, expr, fmt in MEASURES:
             lines.append(f"\tmeasure '{measure_name}' =")
             for expr_line in expr.split("\n"):
