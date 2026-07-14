@@ -7,6 +7,7 @@ repository and custom hooks for Python/uv enforcement.
 
 #region Imports
 import shutil
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -322,6 +323,11 @@ def setup(console: Console, settings: dict, settings_path: Path, hook_type: str 
     Purpose:
         Main entry point for setting up awesome-hooks. Delegates to specific setup functions.
     """
+    # These hooks are shebang scripts registered by bare path; Windows cannot execute them
+    if sys.platform == "win32":
+        console.print("[red]awesome-hooks are shell scripts and are not supported on Windows[/red]")
+        return
+
     if hook_type is None:
         # Show menu
         console.print("[bold cyan]Available awesome-hooks:[/bold cyan]\n")

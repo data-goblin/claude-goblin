@@ -1,5 +1,6 @@
 #region Imports
 import shutil
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -53,7 +54,11 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
         console.print("\n[yellow]Cancelled[/yellow]")
         return
 
-    hook_command = "ccg update usage > /dev/null 2>&1 &"
+    # Windows hooks run through cmd.exe: NUL instead of /dev/null, no & backgrounding
+    if sys.platform == "win32":
+        hook_command = "ccg update usage >NUL 2>&1"
+    else:
+        hook_command = "ccg update usage > /dev/null 2>&1 &"
 
     # Check if already exists
     hook_exists = any(is_hook(hook) for hook in settings["hooks"]["Stop"])

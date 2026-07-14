@@ -1,4 +1,5 @@
 #region Imports
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -35,7 +36,11 @@ def setup(console: Console, settings: dict, settings_path: Path) -> None:
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    hook_command = f"ccg export -o {output_path} > /dev/null 2>&1 &"
+    # Quote the path (spaces in home dirs); Windows hooks run through cmd.exe
+    if sys.platform == "win32":
+        hook_command = f'ccg export -o "{output_path}" >NUL 2>&1'
+    else:
+        hook_command = f'ccg export -o "{output_path}" > /dev/null 2>&1 &'
 
     # Remove existing PNG hooks
     original_count = len(settings["hooks"]["Stop"])
