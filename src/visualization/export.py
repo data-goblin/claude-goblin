@@ -1,4 +1,5 @@
 #region Imports
+from datetime import date as date_type
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -53,8 +54,8 @@ def export_heatmap_svg(
 
     # Build weeks structure
     jan1_day = (start_date.weekday() + 1) % 7
-    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]] = []
-    current_week: list[tuple[DailyStats | None, datetime.date | None]] = []
+    weeks: list[list[tuple[DailyStats | None, date_type | None]]] = []
+    current_week: list[tuple[DailyStats | None, date_type | None]] = []
 
     # Pad first week with None
     for _ in range(jan1_day):
@@ -133,8 +134,8 @@ def export_heatmap_png(
     end_date = datetime(display_year, 12, 31).date()
 
     jan1_day = (start_date.weekday() + 1) % 7
-    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]] = []
-    current_week: list[tuple[DailyStats | None, datetime.date | None]] = []
+    weeks: list[list[tuple[DailyStats | None, date_type | None]]] = []
+    current_week: list[tuple[DailyStats | None, date_type | None]] = []
 
     for _ in range(jan1_day):
         current_week.append((None, None))
@@ -323,7 +324,7 @@ def export_heatmap_png(
 
 
 def _generate_svg(
-    weeks: list[list[tuple[DailyStats | None, datetime.date | None]]],
+    weeks: list[list[tuple[DailyStats | None, date_type | None]]],
     width: int,
     height: int,
     max_tokens: int,
@@ -429,8 +430,8 @@ def _generate_svg(
 def _get_color(
     day_stats: DailyStats | None,
     max_tokens: int,
-    date: datetime.date,
-    today: datetime.date
+    date: date_type,
+    today: date_type
 ) -> str:
     """
     Get the color for a day based on activity level using smooth gradient.
