@@ -11,16 +11,8 @@ Show usage dashboard with KPI cards and breakdowns.
 
 Displays:
 - Total tokens, prompts, and sessions
-- Current usage limits (session, weekly, Opus)
 - Token breakdown by model
 - Token breakdown by project
-
-#### `claude-goblin limits`
-Show current usage limits (session, week, Opus).
-
-Displays current usage percentages and reset times for all three limit types.
-
-**Note:** Must be run from a trusted folder where Claude Code has been used.
 
 #### `claude-goblin stats`
 Show detailed statistics and cost analysis.
@@ -31,14 +23,6 @@ Displays:
 - Averages: tokens per session/response, cost per session/response
 - Text analysis: prompt length, politeness markers, phrase counts
 - Usage by model: token distribution across different models
-
-#### `claude-goblin status-bar <type>`
-Launch macOS menu bar app (macOS only).
-
-Shows "CC: XX%" in your menu bar with auto-refresh every 5 minutes.
-
-**Arguments:**
-- `type` - Type of limit to display: `session`, `weekly`, or `opus` (default: `weekly`)
 
 ### Export
 
@@ -139,7 +123,7 @@ None currently available.
 
 #### `usage` command
 - `--live` - Auto-refresh dashboard every 5 seconds
-- `--fast` - Skip live limits for faster rendering
+- `--fast` - Skip updates, read from database only (faster)
 
 #### `export` command
 - `--svg` - Export as SVG instead of PNG
@@ -149,10 +133,6 @@ None currently available.
 
 #### `delete-usage` command
 - `-f, --force` - Force deletion without confirmation (required)
-
-#### `status-bar` command
-Arguments:
-- `<type>` - Limit type: `session`, `weekly`, or `opus` (default: `weekly`)
 
 #### `setup-hooks` command
 Arguments:
@@ -179,12 +159,6 @@ claude-goblin export -y 2024
 
 # Export as SVG to specific path
 claude-goblin export --svg -o ~/reports/usage.svg
-
-# Show current limits
-claude-goblin limits
-
-# Launch menu bar with weekly usage
-claude-goblin status-bar weekly
 
 # Setup automatic usage tracking
 claude-goblin setup-hooks usage

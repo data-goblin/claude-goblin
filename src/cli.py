@@ -9,9 +9,7 @@ from rich.console import Console
 
 from src.commands import (
     export,
-    limits,
     stats,
-    status_bar,
     usage,
 )
 from src.commands import (
@@ -85,7 +83,6 @@ def usage_command(
 
     Displays comprehensive usage statistics including:
     - Total tokens, prompts, and sessions
-    - Current usage limits (session, weekly, Opus)
     - Token breakdown by model
     - Token breakdown by project
 
@@ -130,21 +127,6 @@ def stats_command(
         stats.run(console, fast=fast, force=force)
 
 
-@app.command(name="limits")
-def limits_command():
-    """
-    Show current usage limits (session, week, Opus).
-
-    Displays current usage percentages and reset times for:
-    - Session limit (resets after inactivity)
-    - Weekly limit for all models (resets weekly)
-    - Weekly Opus limit (resets weekly)
-
-    Note: Must be run from a trusted folder where Claude Code has been used.
-    """
-    limits.run(console)
-
-
 @app.command(name="export")
 def export_command(
     svg: bool = typer.Option(False, "--svg", help="Export as SVG instead of PNG"),
@@ -152,16 +134,14 @@ def export_command(
     fast: bool = typer.Option(False, "--fast", help="Skip updates, read from database only (faster)"),
     year: int | None = typer.Option(None, "--year", "-y", help="Filter by year (default: current year)"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    show: str | None = typer.Option("tokens", "--show", "-s", help="What to show: tokens, limits, or both (default: tokens)"),
 ):
     """
     Export yearly heatmap as PNG or SVG.
 
     Generates a GitHub-style activity heatmap showing your Claude Code usage
-    throughout the year. By default exports as PNG showing token usage only.
+    throughout the year. By default exports as PNG.
 
     Use --fast to skip all updates and read from database only (requires existing database).
-    Use --show to control what's displayed (tokens, limits, or both).
 
     Examples:
         ccg export --open                  Export current year as PNG and open it
@@ -169,15 +149,7 @@ def export_command(
         ccg export --fast                  Export from database without updating
         ccg export -y 2024                 Export specific year
         ccg export -o ~/usage.png          Specify output path
-        ccg export --show both             Show tokens + limits
-        ccg export --show limits           Show only limits (week % and opus %)
     """
-    # Validate show parameter
-    if show not in ["tokens", "limits", "both"]:
-        console.print(f"[red]Error: Invalid --show value '{show}'[/red]")
-        console.print("[yellow]Valid values: tokens, limits, both[/yellow]")
-        raise typer.Exit(1)
-
     # Pass parameters via sys.argv for backward compatibility with export command
     import sys
     if svg and "svg" not in sys.argv:
@@ -192,40 +164,7 @@ def export_command(
     if output is not None:
         if "--output" not in sys.argv and "-o" not in sys.argv:
             sys.argv.extend(["--output", output])
-    if show is not None:
-        if "--show" not in sys.argv and "-s" not in sys.argv:
-            sys.argv.extend(["--show", show])
-
     export.run(console)
-
-
-@app.command(name="status-bar")
-def status_bar_command(
-    limit_type: str = typer.Argument("weekly", help="Type of limit to display: session, weekly, or opus"),
-):
-    """
-    Launch macOS menu bar app (macOS only).
-
-    Displays "CC: XX%" in your menu bar, showing current usage percentage.
-    Updates automatically every 5 minutes.
-
-    Arguments:
-        limit_type: Which limit to display (session, weekly, or opus). Defaults to weekly.
-
-    Examples:
-        ccg status-bar weekly    Show weekly usage (default)
-        ccg status-bar session   Show session usage
-        ccg status-bar opus      Show Opus weekly usage
-
-    Running in background:
-        nohup ccg status-bar weekly > /dev/null 2>&1 &
-    """
-    if limit_type not in ["session", "weekly", "opus"]:
-        console.print(f"[red]Error: Invalid limit type '{limit_type}'[/red]")
-        console.print("[yellow]Valid types: session, weekly, opus[/yellow]")
-        raise typer.Exit(1)
-
-    status_bar.run(console, limit_type)
 
 
 @app.command(name="help", hidden=True)

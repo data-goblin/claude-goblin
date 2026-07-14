@@ -85,32 +85,6 @@ def save_file_aggregate(
     )
 
 
-def save_limits_snapshot(
-    session_pct: int,
-    week_pct: int,
-    opus_pct: int,
-    session_reset: str,
-    week_reset: str,
-    opus_reset: str,
-    device_id: str | None = None,
-    device_name: str | None = None,
-    device_type: str | None = None,
-    db: Path | None = None,
-) -> None:
-    _backend().save_limits_snapshot(
-        session_pct,
-        week_pct,
-        opus_pct,
-        session_reset,
-        week_reset,
-        opus_reset,
-        db_path=db or get_db_path(),
-        device_id=device_id if device_id is not None else _cfg_device_id(),
-        device_name=device_name if device_name is not None else _cfg_device_name(),
-        device_type=device_type if device_type is not None else _cfg_device_type(),
-    )
-
-
 def load_historical_records(
     start_date: str | None = None,
     end_date: str | None = None,
@@ -121,14 +95,6 @@ def load_historical_records(
 
 def get_database_stats(db: Path | None = None) -> dict:
     return _backend().get_database_stats(db or get_db_path())
-
-
-def get_limits_data(db: Path | None = None) -> dict:
-    return _backend().get_limits_data(db or get_db_path())
-
-
-def get_latest_limits(db: Path | None = None):
-    return _backend().get_latest_limits(db or get_db_path())
 
 
 def get_stale_files(all_files: list[Path], db: Path | None = None):

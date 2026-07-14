@@ -16,12 +16,6 @@ CLAUDE_DARK_GREY = "#3C3C3A"  # Past days with no activity
 CLAUDE_LIGHT_GREY = "#6B6B68"  # Future days
 CLAUDE_ORANGE_RGB = (203, 123, 93)  # #CB7B5D
 
-# Diverging gradients for limits (matching orange tone)
-CLAUDE_BLUE_RGB = (93, 150, 203)  # Blue with similar tone to orange
-CLAUDE_GREEN_RGB = (93, 203, 123)  # Green with similar tone to orange
-CLAUDE_RED_RGB = (203, 93, 93)  # Red for 100%
-CLAUDE_DARK_RED_RGB = (120, 40, 80)  # Dark red/purple for >100%
-
 # Export at higher resolution for sharp output
 SCALE_FACTOR = 3  # 3x resolution
 CELL_SIZE = 12 * SCALE_FACTOR
@@ -106,30 +100,24 @@ def export_heatmap_svg(
 def export_heatmap_png(
     stats: AggregatedStats,
     output_path: Path,
-    limits_data: dict[str, dict[str, int]] | None = None,
     title: str | None = None,
     year: int | None = None,
-    tracking_mode: str = "both"
 ) -> None:
     """
-    Export activity heatmaps as a PNG file: tokens, week %, and/or opus %.
+    Export the token activity heatmap as a PNG file.
 
     Requires Pillow: pip install pillow
 
     Args:
         stats: Aggregated statistics to visualize
         output_path: Path where PNG file will be saved
-        limits_data: Dictionary mapping dates to {"week_pct": int, "opus_pct": int}
         title: Optional title for the graph
         year: Year to display (defaults to current year)
-        tracking_mode: One of "both", "tokens", or "limits"
 
     Raises:
         ImportError: If Pillow is not installed
         IOError: If file cannot be written
     """
-    if limits_data is None:
-        limits_data = {}
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -168,7 +156,7 @@ def export_heatmap_png(
             current_week.append((None, None))
         weeks.append(current_week)
 
-    # Calculate dimensions based on tracking mode
+    # Calculate dimensions
     num_weeks = len(weeks)
 
     # Base grid dimensions (one heatmap)
@@ -189,14 +177,7 @@ def export_heatmap_png(
 
     # Each heatmap section includes: title + month labels + grid + legend
     single_heatmap_section_height = heatmap_title_space + month_label_space + grid_height + legend_height
-
-    # Calculate number of heatmaps based on tracking mode
-    if tracking_mode == "tokens":
-        num_heatmaps = 1
-    elif tracking_mode == "limits":
-        num_heatmaps = 2  # Week and Opus
-    else:  # "both"
-        num_heatmaps = 3
+    num_heatmaps = 1
 
     # Total height
     top_padding = base_padding + main_title_height + main_title_to_first_heatmap
@@ -266,27 +247,13 @@ def export_heatmap_png(
     day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     # Helper function to draw one complete heatmap section
-    def draw_heatmap_section(section_y_start, heatmap_title, gradient_func, is_tokens=True, base_color_rgb=None, reset_info=None):
+    def draw_heatmap_section(section_y_start, heatmap_title, gradient_func):
         # Positions within this section
         title_y = section_y_start
         month_y = title_y + heatmap_title_space
         grid_y = month_y + month_label_space
         legend_y = grid_y + grid_height + (CELL_GAP * 2)
         legend_square_y = legend_y - (CELL_SIZE // 4)
-
-        # Parse reset date if provided
-        reset_date = None
-        if reset_info:
-            import re
-            # Parse "Oct 16, 10:59am (Europe/Brussels)" format
-            match = re.search(r'([A-Za-z]+)\s+(\d+)', reset_info)
-            if match:
-                month_name = match.group(1)
-                day = int(match.group(2))
-                # Convert month name to number
-                from datetime import datetime
-                month_num = datetime.strptime(month_name, "%b").month
-                reset_date = datetime(display_year, month_num, day).date()
 
         # Draw heatmap title
         draw.text((grid_x, title_y), heatmap_title, fill=_hex_to_rgb(CLAUDE_TEXT_SECONDARY), font=label_font)
@@ -322,120 +289,34 @@ def export_heatmap_png(
                 draw.rounded_rectangle([x, y, x + CELL_SIZE, y + CELL_SIZE],
                                         radius=corner_radius, fill=color, outline=_hex_to_rgb(CLAUDE_BG))
 
-                # Draw orange dot on reset day
-                if reset_date and date == reset_date:
-                    dot_radius = int(CELL_SIZE * 0.2)  # 20% of cell size
-                    dot_center_x = x + (CELL_SIZE // 2)
-                    dot_center_y = y + (CELL_SIZE // 2)
-                    draw.ellipse([
-                        dot_center_x - dot_radius,
-                        dot_center_y - dot_radius,
-                        dot_center_x + dot_radius,
-                        dot_center_y + dot_radius
-                    ], fill=CLAUDE_ORANGE_RGB)
-
-        # Draw legend
-        draw.text((grid_x, legend_y), "Less" if is_tokens else "0%", fill=_hex_to_rgb(CLAUDE_TEXT_SECONDARY), font=label_font)
-        text_bbox = draw.textbbox((grid_x, legend_y), "Less" if is_tokens else "0%", font=label_font)
+        # Draw legend: dark grey + orange gradient
+        draw.text((grid_x, legend_y), "Less", fill=_hex_to_rgb(CLAUDE_TEXT_SECONDARY), font=label_font)
+        text_bbox = draw.textbbox((grid_x, legend_y), "Less", font=label_font)
         text_width = text_bbox[2] - text_bbox[0]
 
         legend_extra_gap = int(CELL_GAP * 0.3)
         legend_square_spacing = CELL_SIZE + CELL_GAP + legend_extra_gap
         squares_start = grid_x + text_width + (CELL_GAP * 2)
 
-        if is_tokens:
-            # Token legend: dark grey + orange gradient
-            draw.rounded_rectangle([squares_start, legend_square_y, squares_start + CELL_SIZE, legend_square_y + CELL_SIZE],
-                                    radius=corner_radius, fill=_hex_to_rgb(CLAUDE_DARK_GREY))
-            for i in range(1, 5):
-                intensity = 0.2 + ((i - 1) / 3) * 0.8
-                r = int(CLAUDE_ORANGE_RGB[0] * intensity)
-                g = int(CLAUDE_ORANGE_RGB[1] * intensity)
-                b = int(CLAUDE_ORANGE_RGB[2] * intensity)
-                x = squares_start + (i * legend_square_spacing)
-                draw.rounded_rectangle([x, legend_square_y, x + CELL_SIZE, legend_square_y + CELL_SIZE],
-                                        radius=corner_radius, fill=(r, g, b))
-            end_text = "More"
-        else:
-            # Limits legend: base_color → red → dark red
-            for i in range(5):
-                if i == 0:
-                    color = base_color_rgb
-                elif i == 4:
-                    color = CLAUDE_DARK_RED_RGB
-                else:
-                    ratio = i / 3.0
-                    r = int(base_color_rgb[0] + (CLAUDE_RED_RGB[0] - base_color_rgb[0]) * ratio)
-                    g = int(base_color_rgb[1] + (CLAUDE_RED_RGB[1] - base_color_rgb[1]) * ratio)
-                    b = int(base_color_rgb[2] + (CLAUDE_RED_RGB[2] - base_color_rgb[2]) * ratio)
-                    color = (r, g, b)
-                x = squares_start + (i * legend_square_spacing)
-                draw.rounded_rectangle([x, legend_square_y, x + CELL_SIZE, legend_square_y + CELL_SIZE],
-                                        radius=corner_radius, fill=color)
-            end_text = "100%+"
+        draw.rounded_rectangle([squares_start, legend_square_y, squares_start + CELL_SIZE, legend_square_y + CELL_SIZE],
+                                radius=corner_radius, fill=_hex_to_rgb(CLAUDE_DARK_GREY))
+        for i in range(1, 5):
+            intensity = 0.2 + ((i - 1) / 3) * 0.8
+            r = int(CLAUDE_ORANGE_RGB[0] * intensity)
+            g = int(CLAUDE_ORANGE_RGB[1] * intensity)
+            b = int(CLAUDE_ORANGE_RGB[2] * intensity)
+            x = squares_start + (i * legend_square_spacing)
+            draw.rounded_rectangle([x, legend_square_y, x + CELL_SIZE, legend_square_y + CELL_SIZE],
+                                    radius=corner_radius, fill=(r, g, b))
 
         more_x = squares_start + (5 * legend_square_spacing) + CELL_GAP
-        draw.text((more_x, legend_y), end_text, fill=_hex_to_rgb(CLAUDE_TEXT_SECONDARY), font=label_font)
+        draw.text((more_x, legend_y), "More", fill=_hex_to_rgb(CLAUDE_TEXT_SECONDARY), font=label_font)
 
-        # Add reset dot legend if applicable
-        if reset_info:
-            reset_legend_x = more_x + 100 * SCALE_FACTOR  # Space after "100%+"
-            dot_radius = int(CELL_SIZE * 0.2)
-            dot_center_x = reset_legend_x + dot_radius + (CELL_GAP)
-            dot_center_y = legend_square_y + (CELL_SIZE // 2)
-
-            # Draw orange dot
-            draw.ellipse([
-                dot_center_x - dot_radius,
-                dot_center_y - dot_radius,
-                dot_center_x + dot_radius,
-                dot_center_y + dot_radius
-            ], fill=CLAUDE_ORANGE_RGB)
-
-            # Draw label
-            reset_text = f"Resets: {reset_info}"
-            reset_text_x = dot_center_x + dot_radius + (CELL_GAP)
-            draw.text((reset_text_x, legend_y), reset_text, fill=_hex_to_rgb(CLAUDE_TEXT_SECONDARY), font=label_font)
-
-    # Define gradient functions for each heatmap
     def tokens_gradient(day_stats, date):
         color_str = _get_color(day_stats, max_tokens, date, today)
         return _parse_rgb(color_str) if color_str.startswith('rgb(') else _hex_to_rgb(color_str)
 
-    def week_gradient(day_stats, date):
-        date_key = date.strftime("%Y-%m-%d")
-        week_pct = limits_data.get(date_key, {}).get("week_pct", 0)
-        return _get_limits_color(week_pct, CLAUDE_BLUE_RGB, date, today)
-
-    def opus_gradient(day_stats, date):
-        date_key = date.strftime("%Y-%m-%d")
-        opus_pct = limits_data.get(date_key, {}).get("opus_pct", 0)
-        return _get_limits_color(opus_pct, CLAUDE_GREEN_RGB, date, today)
-
-    # Get most recent reset info from limits_data
-    week_reset_info = None
-    opus_reset_info = None
-    if limits_data:
-        try:
-            from src.storage import api
-            latest = api.get_latest_limits()
-            if latest:
-                week_reset_info = latest.get("week_reset") or None
-                opus_reset_info = latest.get("opus_reset") or None
-        except Exception:
-            pass
-
-    # Draw heatmap sections based on tracking mode
-    heatmap_idx = 0
-
-    if tracking_mode in ["both", "tokens"]:
-        draw_heatmap_section(heatmap_y_positions[heatmap_idx], "Token Usage", tokens_gradient, is_tokens=True)
-        heatmap_idx += 1
-
-    if tracking_mode in ["both", "limits"]:
-        draw_heatmap_section(heatmap_y_positions[heatmap_idx], "Week Limit %", week_gradient, is_tokens=False, base_color_rgb=CLAUDE_BLUE_RGB, reset_info=week_reset_info)
-        heatmap_idx += 1
-        draw_heatmap_section(heatmap_y_positions[heatmap_idx], "Opus Limit %", opus_gradient, is_tokens=False, base_color_rgb=CLAUDE_GREEN_RGB, reset_info=opus_reset_info)
+    draw_heatmap_section(heatmap_y_positions[0], "Token Usage", tokens_gradient)
 
     # Save image
     img.save(output_path, 'PNG')
@@ -543,48 +424,6 @@ def _generate_svg(
     svg_parts.append('</svg>')
 
     return '\n'.join(svg_parts)
-
-
-def _get_limits_color(
-    pct: int,
-    base_color_rgb: tuple[int, int, int],
-    date: datetime.date,
-    today: datetime.date
-) -> tuple[int, int, int]:
-    """
-    Get diverging gradient color for limits percentage.
-
-    0% = base_color (blue/green), 100% = red, >100% = dark red/purple
-
-    Args:
-        pct: Usage percentage (0-100+)
-        base_color_rgb: Base color (blue for week, green for opus)
-        date: The date of this cell
-        today: Today's date
-
-    Returns:
-        RGB color tuple
-    """
-    # Future days: light grey
-    if date > today:
-        return _hex_to_rgb(CLAUDE_LIGHT_GREY)
-
-    # Past days with no data: use dark grey
-    if pct == 0:
-        return _hex_to_rgb(CLAUDE_DARK_GREY)
-
-    # >100%: dark red/purple
-    if pct > 100:
-        return CLAUDE_DARK_RED_RGB
-
-    # 0-100%: interpolate from base_color to red
-    ratio = pct / 100.0
-
-    r = int(base_color_rgb[0] + (CLAUDE_RED_RGB[0] - base_color_rgb[0]) * ratio)
-    g = int(base_color_rgb[1] + (CLAUDE_RED_RGB[1] - base_color_rgb[1]) * ratio)
-    b = int(base_color_rgb[2] + (CLAUDE_RED_RGB[2] - base_color_rgb[2]) * ratio)
-
-    return (r, g, b)
 
 
 def _get_color(

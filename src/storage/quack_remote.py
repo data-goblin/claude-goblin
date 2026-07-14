@@ -844,24 +844,4 @@ def get_database_stats() -> dict:
         conn.close()
 
 
-def get_latest_limits() -> dict | None:
-    conn = connect_remote()
-    try:
-        row = conn.execute("""
-            SELECT session_pct, week_pct, opus_pct,
-                   session_reset, week_reset, opus_reset
-            FROM remote.limits_snapshots
-            ORDER BY timestamp DESC LIMIT 1
-        """).fetchone()
-        if not row:
-            return None
-        return {
-            "session_pct": row[0] or 0, "week_pct": row[1] or 0,
-            "opus_pct": row[2] or 0, "session_reset": row[3] or "",
-            "week_reset": row[4] or "", "opus_reset": row[5] or "",
-        }
-    finally:
-        conn.close()
-
-
 #endregion

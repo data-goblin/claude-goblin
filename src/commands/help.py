@@ -42,8 +42,6 @@ Automatically saves historical snapshots to preserve data beyond the 30-day roll
   ccg setup hooks <type>             Configure Claude Code hooks (usage|audio|png)
   ccg setup container                Setup devcontainer for safe Claude execution
   ccg remove hooks [type]            Remove hooks (usage|audio|png, or all)
-  ccg limits                         [dim](temporarily disabled)[/dim]
-  ccg status-bar                     [dim](temporarily disabled)[/dim]
   ccg help                           Show this help message
 
 [bold]Features:[/bold]

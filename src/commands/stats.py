@@ -4,14 +4,11 @@ from datetime import datetime
 
 from rich.console import Console
 
-from src.commands.limits import capture_limits
 from src.commands.update_usage import ingest_token_usage
-from src.config.user_config import get_tracking_mode
 from src.storage import api
 from src.storage.api import (
     get_database_stats,
     get_text_analysis_stats,
-    save_limits_snapshot,
 )
 
 #endregion
@@ -69,24 +66,7 @@ def run(console: Console, fast: bool = False, force: bool = False) -> None:
         with console.status("[bold #ff8800]Updating changed files...", spinner="dots", spinner_style="#ff8800"):
             ingest_token_usage(console, force=force_mode, verbose=False)
 
-        # Step 2: Update limits data (if enabled and working)
-        # NOTE: Limits tracking is currently disabled due to Claude Code format changes
-        tracking_mode = get_tracking_mode()
-        if tracking_mode in ["both", "limits"]:
-            limits = capture_limits()
-            if limits and "error" not in limits:
-                with console.status("[bold #ff8800]Updating usage limits...", spinner="dots", spinner_style="#ff8800"):
-                    save_limits_snapshot(
-                        session_pct=limits["session_pct"],
-                        week_pct=limits["week_pct"],
-                        opus_pct=limits["opus_pct"],
-                        session_reset=limits["session_reset"],
-                        week_reset=limits["week_reset"],
-                        opus_reset=limits["opus_reset"],
-                    )
-            # Silently skip if disabled
-
-    # Step 3: Display stats from DB
+    # Step 2: Display stats from DB
     db_stats = get_database_stats()
 
     if db_stats["total_records"] == 0 and db_stats["total_prompts"] == 0:

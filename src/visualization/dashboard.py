@@ -69,7 +69,7 @@ def _create_bar(value: int, max_value: int, width: int = BAR_WIDTH, color: str =
     return bar
 
 
-def render_dashboard(stats: AggregatedStats, records: list[UsageRecord], console: Console, skip_limits: bool = False, clear_screen: bool = True, date_range: str = None, limits_from_db: dict | None = None, fast_mode: bool = False) -> None:
+def render_dashboard(stats: AggregatedStats, records: list[UsageRecord], console: Console, clear_screen: bool = True, date_range: str = None, fast_mode: bool = False) -> None:
     """
     Render a concise, modern dashboard with KPI cards and breakdowns.
 
@@ -77,10 +77,8 @@ def render_dashboard(stats: AggregatedStats, records: list[UsageRecord], console
         stats: Aggregated statistics
         records: Raw usage records for detailed breakdowns
         console: Rich console for rendering
-        skip_limits: If True, skip fetching current limits for faster display
         clear_screen: If True, clear the screen before rendering (default True)
         date_range: Optional date range string to display in footer
-        limits_from_db: Pre-fetched limits from database (avoids live fetch)
         fast_mode: If True, show warning that data is from last update
     """
     if clear_screen:
@@ -91,8 +89,8 @@ def render_dashboard(stats: AggregatedStats, records: list[UsageRecord], console
         _render_simple_dashboard(stats, records, console, date_range, fast_mode)
         return
 
-    # Create KPI cards with limits (shows spinner if loading limits)
-    kpi_section = _create_kpi_section(stats.overall_totals, skip_limits=skip_limits, console=console, limits_from_db=limits_from_db)
+    # Create KPI cards
+    kpi_section = _create_kpi_section(stats.overall_totals)
 
     # Create breakdowns
     model_breakdown = _create_model_breakdown(records)
@@ -173,30 +171,16 @@ def _render_simple_dashboard(stats: AggregatedStats, records: list[UsageRecord],
     console.print(f"[{DIM}]Tip: ccg export --open for heatmap[/{DIM}]")
 
 
-def _create_kpi_section(overall, skip_limits: bool = False, console: Console = None, limits_from_db: dict | None = None) -> Group:
+def _create_kpi_section(overall) -> Group:
     """
-    Create KPI cards with individual limit boxes beneath each.
+    Create KPI cards showing key metrics.
 
     Args:
         overall: Overall statistics
-        skip_limits: If True, skip fetching current limits (faster)
-        console: Console instance for showing spinner
-        limits_from_db: Pre-fetched limits from database (avoids live fetch)
 
     Returns:
-        Group containing KPI cards and limit boxes
+        Group containing KPI cards
     """
-    # Use limits from DB if provided, otherwise fetch live (unless skipped)
-    limits = limits_from_db
-    if limits is None and not skip_limits:
-        from src.commands.limits import capture_limits
-        if console:
-            with console.status(f"[bold {ORANGE}]Loading usage limits...", spinner="dots", spinner_style=ORANGE):
-                limits = capture_limits()
-        else:
-            limits = capture_limits()
-
-    # Create KPI cards
     kpi_grid = Table.grid(padding=(0, 2), expand=False)
     kpi_grid.add_column(justify="center")
     kpi_grid.add_column(justify="center")
@@ -228,170 +212,7 @@ def _create_kpi_section(overall, skip_limits: bool = False, console: Console = N
 
     kpi_grid.add_row(tokens_card, prompts_card, sessions_card)
 
-    # Create individual limit boxes if available
-    if limits and "error" not in limits:
-        limit_grid = Table.grid(padding=(0, 2), expand=False)
-        limit_grid.add_column(justify="center")
-        limit_grid.add_column(justify="center")
-        limit_grid.add_column(justify="center")
-
-        # Remove timezone info from reset dates
-        session_reset = limits['session_reset'].split(' (')[0] if '(' in limits['session_reset'] else limits['session_reset']
-        week_reset = limits['week_reset'].split(' (')[0] if '(' in limits['week_reset'] else limits['week_reset']
-        opus_reset = limits['opus_reset'].split(' (')[0] if '(' in limits['opus_reset'] else limits['opus_reset']
-
-        # Session limit box
-        session_bar = _create_bar(limits["session_pct"], 100, width=16, color="red")
-        session_content = Text()
-        session_content.append(f"{limits['session_pct']}% ", style="bold red")
-        session_content.append(session_bar)
-        session_content.append(f"\nResets: {session_reset}", style="white")
-        session_box = Panel(
-            session_content,
-            title="[red]Session Limit",
-            border_style="white",
-            width=28,
-        )
-
-        # Week limit box
-        week_bar = _create_bar(limits["week_pct"], 100, width=16, color="red")
-        week_content = Text()
-        week_content.append(f"{limits['week_pct']}% ", style="bold red")
-        week_content.append(week_bar)
-        week_content.append(f"\nResets: {week_reset}", style="white")
-        week_box = Panel(
-            week_content,
-            title="[red]Weekly Limit",
-            border_style="white",
-            width=28,
-        )
-
-        # Opus limit box
-        opus_bar = _create_bar(limits["opus_pct"], 100, width=16, color="red")
-        opus_content = Text()
-        opus_content.append(f"{limits['opus_pct']}% ", style="bold red")
-        opus_content.append(opus_bar)
-        opus_content.append(f"\nResets: {opus_reset}", style="white")
-        opus_box = Panel(
-            opus_content,
-            title="[red]Opus Limit",
-            border_style="white",
-            width=28,
-        )
-
-        limit_grid.add_row(session_box, week_box, opus_box)
-
-        # Add spacing between KPI cards and limits with a simple newline
-        spacing = Text("\n")
-        return Group(kpi_grid, spacing, limit_grid)
-    else:
-        return Group(kpi_grid)
-
-
-def _create_kpi_cards(overall) -> Table:
-    """
-    Create 3 KPI cards showing key metrics.
-
-    Args:
-        overall: Overall statistics
-
-    Returns:
-        Table grid with KPI cards
-    """
-    grid = Table.grid(padding=(0, 2), expand=False)
-    grid.add_column(justify="center")
-    grid.add_column(justify="center")
-    grid.add_column(justify="center")
-
-    # Total Tokens card
-    tokens_card = Panel(
-        Text.assemble(
-            (_format_number(overall.total_tokens), f"bold {ORANGE}"),
-            "\n",
-            ("Total Tokens", DIM),
-        ),
-        border_style="white",
-        width=28,
-    )
-
-    # Total Prompts card
-    prompts_card = Panel(
-        Text.assemble(
-            (_format_number(overall.total_prompts), f"bold {ORANGE}"),
-            "\n",
-            ("Prompts Sent", DIM),
-        ),
-        border_style="white",
-        width=28,
-    )
-
-    # Total Sessions card
-    sessions_card = Panel(
-        Text.assemble(
-            (_format_number(overall.total_sessions), f"bold {ORANGE}"),
-            "\n",
-            ("Active Sessions", DIM),
-        ),
-        border_style="white",
-        width=28,
-    )
-
-    grid.add_row(tokens_card, prompts_card, sessions_card)
-    return grid
-
-
-def _create_limits_bars() -> Panel | None:
-    """
-    Create progress bars showing current usage limits.
-
-    Returns:
-        Panel with limit progress bars, or None if no limits data
-    """
-    # Try to capture current limits
-    from src.commands.limits import capture_limits
-
-    limits = capture_limits()
-    if not limits or "error" in limits:
-        return None
-
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Label", style="white", justify="left")
-    table.add_column("Bar", justify="left")
-    table.add_column("Percent", style=ORANGE, justify="right")
-    table.add_column("Reset", style=CYAN, justify="left")
-
-    # Session limit
-    session_bar = _create_bar(limits["session_pct"], 100, width=30)
-    table.add_row(
-        "[bold]Session",
-        session_bar,
-        f"{limits['session_pct']}%",
-        f"resets {limits['session_reset']}",
-    )
-
-    # Week limit
-    week_bar = _create_bar(limits["week_pct"], 100, width=30)
-    table.add_row(
-        "[bold]Week",
-        week_bar,
-        f"{limits['week_pct']}%",
-        f"resets {limits['week_reset']}",
-    )
-
-    # Opus limit
-    opus_bar = _create_bar(limits["opus_pct"], 100, width=30)
-    table.add_row(
-        "[bold]Opus",
-        opus_bar,
-        f"{limits['opus_pct']}%",
-        f"resets {limits['opus_reset']}",
-    )
-
-    return Panel(
-        table,
-        title="[bold]Usage Limits",
-        border_style="white",
-    )
+    return Group(kpi_grid)
 
 
 def _create_model_breakdown(records: list[UsageRecord]) -> Panel:

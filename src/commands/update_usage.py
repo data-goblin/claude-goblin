@@ -4,13 +4,11 @@ from pathlib import Path
 
 from rich.console import Console
 
-from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
 from src.config.user_config import (
     get_device_id,
     get_extra_sources,
     get_storage_mode,
-    get_tracking_mode,
 )
 from src.data.codex_parser import parse_all_codex_files
 from src.data.jsonl_parser import parse_all_jsonl_files
@@ -251,28 +249,8 @@ def run(console: Console) -> None:
         console: Rich console for output
     """
     try:
-        tracking_mode = get_tracking_mode()
-
         # Save current snapshot (tokens) -- incremental via get_stale_files
-        if tracking_mode in ["both", "tokens"]:
-            ingest_token_usage(console)
-
-        # Capture and save limits
-        if tracking_mode in ["both", "limits"]:
-            limits = capture_limits()
-            if limits and "error" not in limits:
-                api.save_limits_snapshot(
-                    session_pct=limits["session_pct"],
-                    week_pct=limits["week_pct"],
-                    opus_pct=limits["opus_pct"],
-                    session_reset=limits["session_reset"],
-                    week_reset=limits["week_reset"],
-                    opus_reset=limits["opus_reset"],
-                )
-                console.print(f"[green]Saved limits snapshot (Session: {limits['session_pct']}%, Week: {limits['week_pct']}%, Opus: {limits['opus_pct']}%)[/green]")
-            elif limits and "error" in limits:
-                console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
-                console.print("[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
+        ingest_token_usage(console)
 
         # Fill in date gaps so the heatmap is contiguous. Coverage comes from
         # a cheap count/min/max query, not the full stats aggregation.

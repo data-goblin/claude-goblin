@@ -78,7 +78,6 @@ def get_default_config() -> dict:
     return {
         "storage_mode": "aggregate",  # "aggregate" or "full"
         "plan_type": "max_20x",  # "pro", "max_5x", or "max_20x"
-        "tracking_mode": "both",  # "both", "tokens", or "limits"
         "version": "1.0",
         # Sync configuration
         "storage_format": "sqlite",  # "sqlite" or "duckdb"
@@ -145,35 +144,6 @@ def set_plan_type(plan: str) -> None:
 
     config = load_config()
     config["plan_type"] = plan
-    save_config(config)
-
-
-def get_tracking_mode() -> str:
-    """
-    Get the current tracking mode setting.
-
-    Returns:
-        One of "both", "tokens", or "limits"
-    """
-    config = load_config()
-    return config.get("tracking_mode", "both")
-
-
-def set_tracking_mode(mode: str) -> None:
-    """
-    Set the tracking mode for data capture and visualization.
-
-    Args:
-        mode: One of "both", "tokens", or "limits"
-
-    Raises:
-        ValueError: If mode is not valid
-    """
-    if mode not in ["both", "tokens", "limits"]:
-        raise ValueError(f"Invalid tracking mode: {mode}. Must be 'both', 'tokens', or 'limits'")
-
-    config = load_config()
-    config["tracking_mode"] = mode
     save_config(config)
 
 

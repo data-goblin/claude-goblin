@@ -8,9 +8,6 @@
 > [!WARNING]
 > This project is in active development (pre-1.0.0). Issues are not actively tracked until version 1.0.0 is released. Features may change without notice.
 
-> [!IMPORTANT]
-> **v0.1.10**: Usage limits tracking (`ccg limits`, `ccg status-bar`) is temporarily disabled due to changes in Claude Code's `/usage` output format. Token tracking continues to work normally. Run `claude /usage` directly to view your limits. This will be fixed in a future release.
-
 Python command line tool to help with Claude Code utilities and Claude Code usage analytics and long-term tracking.
 
 
@@ -24,12 +21,6 @@ Python command line tool to help with Claude Code utilities and Claude Code usag
 **TUI Dashboard:**
 
 ![Example TUI dashboard](docs/images/dashboard.png)
-
----
-
-**MacOS status bar for usage limits:**
-
-![Example status bar](docs/images/status-bar.png)
 
 ---
 
@@ -48,7 +39,6 @@ Python command line tool to help with Claude Code utilities and Claude Code usag
 ## Features
 
 - Local snapshotting of Claude Code logs for analytics
-- ~~Local snapshotting of usage limits from the Claude Code `/usage` command~~ *(temporarily disabled)*
 - Dashboard and stats of usage history
 - Project anonymization for sharing screenshots (`--anon` flag)
 - Hook setup to automate data logging or analysis of Claude Code
@@ -118,10 +108,8 @@ For most users, just run `usage` regularly and it will handle data tracking auto
 | `ccg usage --live` | Auto-refresh dashboard every 5 seconds |
 | `ccg usage --fast` | Skip updates for faster rendering |
 | `ccg usage --anon` | Anonymize project names (project-001, project-002, etc.) |
-| `ccg limits` | ~~Show current usage limits~~ *(temporarily disabled)* |
 | `ccg stats` | Show detailed statistics and cost analysis |
 | `ccg stats --fast` | Skip updates for faster rendering |
-| `ccg status-bar [type]` | ~~Launch macOS menu bar app~~ *(temporarily disabled)* |
 | **Export** | |
 | `ccg export` | Export yearly heatmap as PNG (default) |
 | `ccg export --svg` | Export as SVG image |
@@ -337,13 +325,6 @@ Example heatmap:
 
 - **PNG** (default): `ccg export`
 
-## --status-bar (macOS only)
-
-> [!NOTE]
-> This feature is temporarily disabled due to changes in Claude Code's `/usage` output format. Run `claude /usage` directly to view your limits.
-
-~~Launch a menu bar app showing your Claude Code usage limits.~~
-
 ## Hooks
 
 Claude Goblin can integrate with Claude Code's hook system to automate various tasks. Hooks trigger automatically based on Claude Code events.
@@ -502,7 +483,6 @@ ccg restore usage
 - **Models**: Which Claude models you've used (Sonnet, Opus, Haiku)
 - **Projects**: Folders/directories where you've used Claude
 - **Time**: Daily activity patterns throughout the year
-- ~~**Usage Limits**: Real-time session, weekly, and Opus limits~~ *(temporarily disabled)*
 
 It will also compute how much you would have had to pay if you used API pricing instead of a $200 Max plan.
 
@@ -632,11 +612,6 @@ source ~/.bashrc
 # Verify it works
 claude --version
 ```
-
-**Note:** Token tracking will continue to work even if `claude` CLI is not found; only limits tracking requires it.
-
-### Limits showing "temporarily unavailable"
-Limits tracking is currently disabled due to changes in Claude Code's `/usage` output format. Run `claude /usage` directly to view your limits. This will be fixed in a future release.
 
 ### Export fails
 - Install export dependencies: `pip install -e ".[export]"`

@@ -6,19 +6,14 @@ from pathlib import Path
 from rich.console import Console
 
 from src.aggregation.daily_stats import aggregate_all
-from src.commands.limits import capture_limits
 from src.commands.update_usage import ingest_token_usage
 from src.config.settings import (
     DEFAULT_REFRESH_INTERVAL,
     get_claude_jsonl_files,
 )
-from src.config.user_config import get_tracking_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage import api
-from src.storage.api import (
-    load_historical_records,
-    save_limits_snapshot,
-)
+from src.storage.api import load_historical_records
 from src.visualization.dashboard import render_dashboard
 
 #endregion
@@ -37,7 +32,7 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
     Args:
         console: Rich console for output
         live: Enable auto-refresh mode (default: False)
-        fast: Skip limits fetching for faster rendering (default: False)
+        fast: Skip all updates, read directly from DB (default: False)
         anon: Anonymize project names to project-001, project-002, etc (default: False)
         force: Force re-parse all files, ignoring incremental cache (default: False)
 
@@ -46,7 +41,7 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
     """
     # Check sys.argv for backward compatibility (hooks still use old style)
     run_live = live or "--live" in sys.argv
-    skip_limits = fast or "--fast" in sys.argv
+    fast_mode = fast or "--fast" in sys.argv
     anonymize = anon or "--anon" in sys.argv
     force_reparse = force or "--force" in sys.argv
 
@@ -65,9 +60,9 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
 
         # Run with or without live refresh
         if run_live:
-            _run_live_dashboard(jsonl_files, console, skip_limits, anonymize, force_reparse)
+            _run_live_dashboard(jsonl_files, console, fast_mode, anonymize, force_reparse)
         else:
-            _display_dashboard(jsonl_files, console, skip_limits, anonymize, force_reparse)
+            _display_dashboard(jsonl_files, console, fast_mode, anonymize, force_reparse)
 
     except FileNotFoundError as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -82,14 +77,14 @@ def run(console: Console, live: bool = False, fast: bool = False, anon: bool = F
         sys.exit(1)
 
 
-def _run_live_dashboard(jsonl_files: list[Path], console: Console, skip_limits: bool = False, anonymize: bool = False, force: bool = False) -> None:
+def _run_live_dashboard(jsonl_files: list[Path], console: Console, fast_mode: bool = False, anonymize: bool = False, force: bool = False) -> None:
     """
     Run dashboard with auto-refresh.
 
     Args:
         jsonl_files: List of JSONL files to parse
         console: Rich console for output
-        skip_limits: Skip limits fetching for faster rendering
+        fast_mode: Skip all updates, read directly from DB
         anonymize: Anonymize project names
         force: Force re-parse all files on first run only.
                Note: In live mode, --force only applies to the initial refresh.
@@ -112,14 +107,14 @@ def _run_live_dashboard(jsonl_files: list[Path], console: Console, skip_limits: 
     while True:
         try:
             # Only force on first run in live mode (documented behavior)
-            _display_dashboard(jsonl_files, console, skip_limits, anonymize, force and first_run)
+            _display_dashboard(jsonl_files, console, fast_mode, anonymize, force and first_run)
             first_run = False
             time.sleep(DEFAULT_REFRESH_INTERVAL)
         except KeyboardInterrupt:
             raise
 
 
-def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: bool = False, anonymize: bool = False, force: bool = False) -> None:
+def _display_dashboard(jsonl_files: list[Path], console: Console, fast_mode: bool = False, anonymize: bool = False, force: bool = False) -> None:
     """
     Ingest JSONL data and display dashboard.
 
@@ -130,14 +125,12 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
     Args:
         jsonl_files: List of JSONL files to parse
         console: Rich console for output
-        skip_limits: Skip ALL updates, read directly from DB (fast mode)
+        fast_mode: Skip ALL updates, read directly from DB
         anonymize: Anonymize project names to project-001, project-002, etc
         force: Force re-parse all files, ignoring incremental cache
     """
-    from src.storage.api import get_latest_limits
-
     # Check if database exists when using --fast
-    if skip_limits and not api.current_db_path().exists():
+    if fast_mode and not api.current_db_path().exists():
         console.clear()
         console.print("[red]Error: Cannot use --fast flag without existing database.[/red]")
         console.print("[yellow]Run 'ccg usage' (without --fast) first to create the database.[/yellow]")
@@ -146,7 +139,7 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
     current_records = []
 
     # Update data unless in fast mode
-    if not skip_limits:
+    if not fast_mode:
         # Step 1: Update usage data via the shared ingest (incremental,
         # covers extra_sources too)
         if force:
@@ -154,41 +147,20 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
         with console.status("[bold #ff8800]Updating changed files...", spinner="dots", spinner_style="#ff8800"):
             ingest_token_usage(console, force=force, verbose=False)
 
-        # Step 2: Update limits data (if enabled and working)
-        # NOTE: Limits tracking is currently disabled due to Claude Code format changes
-        # Silently skip - users can check status with `ccg limits`
-        tracking_mode = get_tracking_mode()
-        if tracking_mode in ["both", "limits"]:
-            limits = capture_limits()
-            if limits and "error" not in limits:
-                with console.status("[bold #ff8800]Updating usage limits...", spinner="dots", spinner_style="#ff8800"):
-                    save_limits_snapshot(
-                        session_pct=limits["session_pct"],
-                        week_pct=limits["week_pct"],
-                        opus_pct=limits["opus_pct"],
-                        session_reset=limits["session_reset"],
-                        week_reset=limits["week_reset"],
-                        opus_reset=limits["opus_reset"],
-                    )
-            # Silently skip if disabled or errored - no warning spam
-
-        # Step 3a: Parse ALL JSONL files for detailed model/branch/project breakdown
+        # Step 2: Parse ALL JSONL files for detailed model/branch/project breakdown
         # This ensures we always have granular data regardless of storage mode
         if not current_records:
             with console.status("[bold #ff8800]Loading usage data...", spinner="dots", spinner_style="#ff8800"):
                 current_records = parse_all_jsonl_files(jsonl_files)
 
-    # Step 3b: Prepare dashboard
+    # Step 3: Prepare dashboard
     with console.status("[bold #ff8800]Preparing dashboard...", spinner="dots", spinner_style="#ff8800"):
         # In fast mode, load from DB (aggregate records)
         # Otherwise, use parsed JSONL records for detailed breakdowns
-        if skip_limits:
+        if fast_mode:
             all_records = load_historical_records()
         else:
             all_records = current_records if current_records else load_historical_records()
-
-        # Get latest limits from DB (if we saved them above or if they exist)
-        limits_from_db = get_latest_limits()
 
     if not all_records:
         console.clear()
@@ -213,8 +185,7 @@ def _display_dashboard(jsonl_files: list[Path], console: Console, skip_limits: b
     # Aggregate statistics
     stats = aggregate_all(all_records)
 
-    # Render dashboard with limits from DB (no live fetch needed)
-    render_dashboard(stats, all_records, console, skip_limits=True, clear_screen=False, date_range=date_range, limits_from_db=limits_from_db, fast_mode=skip_limits)
+    render_dashboard(stats, all_records, console, clear_screen=False, date_range=date_range, fast_mode=fast_mode)
 
 
 def run_remote(console: Console, anon: bool = False) -> None:
@@ -226,15 +197,11 @@ def run_remote(console: Console, anon: bool = False) -> None:
     """
     try:
         from src.storage.quack_remote import (
-            get_latest_limits as remote_limits,
-        )
-        from src.storage.quack_remote import (
             load_historical_records as remote_load,
         )
 
         with console.status("[bold #ff8800]Connecting to remote...", spinner="dots", spinner_style="#ff8800"):
             all_records = remote_load()
-            limits_from_db = remote_limits()
 
         if not all_records:
             console.print("[yellow]No usage data on remote. Push first with: ccg sync push[/yellow]")
@@ -253,8 +220,8 @@ def run_remote(console: Console, anon: bool = False) -> None:
         from src.visualization.dashboard import render_dashboard
         render_dashboard(
             stats, all_records, console,
-            skip_limits=True, clear_screen=False,
-            date_range=date_range, limits_from_db=limits_from_db,
+            clear_screen=False,
+            date_range=date_range,
             fast_mode=True,
         )
         console.print("\n[dim]Source: remote (cross-device aggregate)[/dim]")

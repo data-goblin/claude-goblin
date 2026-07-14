@@ -6,16 +6,13 @@ from pathlib import Path
 from rich.console import Console
 
 from src.aggregation.daily_stats import aggregate_all
-from src.commands.limits import capture_limits
 from src.config.settings import get_claude_jsonl_files
-from src.config.user_config import get_storage_mode, get_tracking_mode
+from src.config.user_config import get_storage_mode
 from src.data.jsonl_parser import parse_all_jsonl_files
 from src.storage import api
 from src.storage.api import (
     get_database_stats,
-    get_limits_data,
     load_historical_records,
-    save_limits_snapshot,
     save_snapshot,
 )
 from src.utils._system import open_file
@@ -40,7 +37,6 @@ def run(console: Console) -> None:
         svg: Export as SVG instead of PNG
         --open: Open file after export
         --fast: Skip updates, read directly from database (faster)
-        --show MODE or -s MODE: What to show (tokens, limits, both) - default: tokens
         --year YYYY or -y YYYY: Filter by year (default: current year)
         -o FILE or --output FILE: Specify output file path
     """
@@ -56,19 +52,6 @@ def run(console: Console) -> None:
 
     # Check for --open flag
     should_open = "--open" in sys.argv
-
-    # Parse --show flag (defaults to "tokens")
-    show_mode = "tokens"
-    for i, arg in enumerate(sys.argv):
-        if arg in ["--show", "-s"] and i + 1 < len(sys.argv):
-            show_mode = sys.argv[i + 1]
-            break
-
-    # Warn about limits being temporarily disabled
-    if show_mode in ["limits", "both"]:
-        console.print("[yellow]Note: Limits tracking is temporarily disabled.[/yellow]")
-        console.print("[dim]Export will use historical limits data if available.[/dim]")
-        console.print()
 
     # Parse year filter (--year YYYY)
     year_filter = None
@@ -133,31 +116,13 @@ def run(console: Console) -> None:
 
         # Update data unless in fast mode
         if not fast_mode:
-            # Step 1: Update usage data
+            # Update usage data
             with console.status("[bold #ff8800]Updating usage data...", spinner="dots", spinner_style="#ff8800"):
                 jsonl_files = get_claude_jsonl_files()
                 if jsonl_files:
                     current_records = parse_all_jsonl_files(jsonl_files)
                     if current_records:
                         save_snapshot(current_records, storage_mode=get_storage_mode())
-
-            # Step 2: Update limits data (if enabled)
-            tracking_mode = get_tracking_mode()
-            if tracking_mode in ["both", "limits"]:
-                with console.status("[bold #ff8800]Updating usage limits...", spinner="dots", spinner_style="#ff8800"):
-                    limits = capture_limits()
-                    if limits and "error" not in limits:
-                        save_limits_snapshot(
-                            session_pct=limits["session_pct"],
-                            week_pct=limits["week_pct"],
-                            opus_pct=limits["opus_pct"],
-                            session_reset=limits["session_reset"],
-                            week_reset=limits["week_reset"],
-                            opus_reset=limits["opus_reset"],
-                        )
-                    elif limits and "error" in limits:
-                        console.print(f"[yellow]⚠ {limits['message']}[/yellow]")
-                        console.print("[dim]Skipping limits tracking. Token tracking will continue.[/dim]")
 
         # Load data from database
         with console.status(f"[bold #ff8800]Loading data for {year_filter}...", spinner="dots", spinner_style="#ff8800"):
@@ -169,15 +134,10 @@ def run(console: Console) -> None:
 
             stats = aggregate_all(all_records)
 
-            # Load limits data (only if needed)
-            limits_data = {}
-            if show_mode in ["both", "limits"]:
-                limits_data = get_limits_data()
-
         console.print(f"[cyan]Exporting to {format_type.upper()}...[/cyan]")
 
         if format_type == "png":
-            export_heatmap_png(stats, output_path, limits_data=limits_data, year=year_filter, tracking_mode=show_mode)
+            export_heatmap_png(stats, output_path, year=year_filter)
         else:
             export_heatmap_svg(stats, output_path, year=year_filter)
 
