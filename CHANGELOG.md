@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-07-14
+
+### Added
+- Codex ingestion: `~/.codex/sessions` rollout files parse as a token source
+  alongside Claude Code transcripts, with per-turn identity that survives
+  session resumes and forks
+- DuckDB storage backend as an alternative to SQLite, selectable per install
+- OneLake sync provider: pushes daily aggregates to a Microsoft Fabric
+  lakehouse (any tenant/workspace/lakehouse, fully configurable) and
+  generates a Direct Lake semantic model for DAX/Power BI queries
+  (`ccg sync query`, `scripts/create_semantic_model.py`)
+- Quack DuckDB remote sync provider (replaces Syncthing) with a multi-sink
+  push loop - every configured provider gets pushed, one failing doesn't
+  block the others
+- `ccg sync repair` - rebuilds a quack remote's table after a local
+  `--rebuild` without losing any other device's rows (full backup taken
+  before anything is dropped or recreated)
+- `ccg update usage --rebuild` - recomputes local history from surviving
+  transcripts when counting logic changes, with a mandatory pre-repair
+  backup and no bare deletes
+- Interactive TUI (Textual) and a redesigned dashboard
+- Extra sources: ingest external JSONL trees (e.g. a second machine's
+  synced transcripts) with per-source device attribution
+- Bundled skills and slash commands
+- GitHub Actions CI and an automated PR review workflow
+
+### Fixed
+- **Token counting**: identity now keys on the billed API response
+  (`message.id` + `requestId`), deduplicated globally across sessions.
+  Previously every streaming-flush JSONL entry counted separately and
+  session forks replayed history into new counts, inflating totals well
+  beyond what the API actually billed
+- **Pricing**: rates now match what Anthropic/OpenAI/Google actually charge,
+  including the 5-minute vs 1-hour prompt-cache-write tiers (1.25x / 2x base
+  input) instead of a single flat cache-write rate
+- Codex turn identity was scoped per-file, so the cross-session dedupe
+  collapsed turns from different sessions onto each other
+- Aggregate storage mode no longer re-adds a whole transcript file's totals
+  on every reparse - only the delta since the file's last contribution
+
+### Changed
+- Nested per-provider sync configuration (`sync_providers`, per-provider
+  blocks) replaces the old flat single-provider config
+- CLI restructured; see prior 0.1.10 entry for the subcommand renames this
+  release builds on
+
 ## [0.2.0] - 2025-12-14
 
 ### Added

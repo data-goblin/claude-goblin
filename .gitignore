@@ -47,3 +47,7 @@ Thumbs.db
 main.py
 test_*.py
 RELEASING.md
+
+# Local transcript/session debris - never ship personal usage data
+.claude-sync/
+*.png
