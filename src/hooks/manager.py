@@ -56,7 +56,7 @@ def setup_hooks(console: Console, hook_type: str | None = None, user: bool = Fal
 
         # Read existing settings
         if settings_path.exists():
-            with open(settings_path) as f:
+            with open(settings_path, encoding="utf-8") as f:
                 settings = json.load(f)
         else:
             settings = {}
@@ -88,7 +88,7 @@ def setup_hooks(console: Console, hook_type: str | None = None, user: bool = Fal
             return
 
         # Write settings back
-        with open(settings_path, "w") as f:
+        with open(settings_path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
 
         console.print(f"\n[dim]Hook location: {settings_path}[/dim]")
@@ -124,7 +124,7 @@ def remove_hooks(console: Console, hook_type: str | None = None, user: bool = Fa
 
     try:
         # Read existing settings
-        with open(settings_path) as f:
+        with open(settings_path, encoding="utf-8") as f:
             settings = json.load(f)
 
         # Create backup before modifying
@@ -223,7 +223,7 @@ def remove_hooks(console: Console, hook_type: str | None = None, user: bool = Fa
             return
 
         # Write settings back
-        with open(settings_path, "w") as f:
+        with open(settings_path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
 
         console.print(f"[green]✓ Removed {removed_count} {removed_type} hook(s)[/green]")

@@ -421,7 +421,7 @@ def run(
 
     # Write Dockerfile
     dockerfile_path = devcontainer_dir / "Dockerfile"
-    dockerfile_path.write_text(DOCKERFILE_TEMPLATE)
+    dockerfile_path.write_text(DOCKERFILE_TEMPLATE, encoding="utf-8")
     console.print(f"[green]Created:[/green] {dockerfile_path}")
 
     # Write devcontainer.json
@@ -430,13 +430,13 @@ def run(
         project_name=project_name,
         volume_prefix=volume_prefix,
     )
-    devcontainer_json_path.write_text(devcontainer_content)
+    devcontainer_json_path.write_text(devcontainer_content, encoding="utf-8")
     console.print(f"[green]Created:[/green] {devcontainer_json_path}")
 
     # Write init-firewall.sh
     firewall_path = devcontainer_dir / "init-firewall.sh"
     firewall_content = FIREWALL_TEMPLATE.format(domains=domains_formatted)
-    firewall_path.write_text(firewall_content)
+    firewall_path.write_text(firewall_content, encoding="utf-8")
     firewall_path.chmod(0o755)
     console.print(f"[green]Created:[/green] {firewall_path}")
 
@@ -449,7 +449,7 @@ def run(
         if settings_path.exists():
             console.print(f"[yellow]Skipped:[/yellow] {settings_path} (already exists)")
         else:
-            settings_path.write_text(VSCODE_SETTINGS_TEMPLATE)
+            settings_path.write_text(VSCODE_SETTINGS_TEMPLATE, encoding="utf-8")
             console.print(f"[green]Created:[/green] {settings_path}")
 
     # Print summary

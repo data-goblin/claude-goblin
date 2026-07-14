@@ -39,7 +39,7 @@ def _parse_skill_frontmatter(skill_path: Path) -> dict:
     if not skill_md.exists():
         return {}
 
-    content = skill_md.read_text()
+    content = skill_md.read_text(encoding="utf-8")
 
     # Extract YAML frontmatter between --- markers
     match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)

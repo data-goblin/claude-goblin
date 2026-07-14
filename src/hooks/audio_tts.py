@@ -169,7 +169,7 @@ echo "$message" | say -v {voice} &
 # echo "$(date): TTS spoke: $message" >> ~/.claude/tts_hook.log
 """
 
-    hook_script.write_text(hook_script_content)
+    hook_script.write_text(hook_script_content, encoding="utf-8")
     hook_script.chmod(0o755)  # Make executable
 
     # Initialize hook structures

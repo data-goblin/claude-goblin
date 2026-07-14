@@ -77,7 +77,7 @@ def get_quack_token() -> str:
         path = Path(config.get("token_file", "")).expanduser()
         if not path.exists():
             raise RuntimeError(f"Token file not found: {path}")
-        return _validate_token(path.read_text().strip())
+        return _validate_token(path.read_text(encoding="utf-8").strip())
 
     raise RuntimeError(f"Unknown token source: {source}")
 
