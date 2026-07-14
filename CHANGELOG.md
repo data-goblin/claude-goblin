@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-14
+
+### Fixed
+- **Windows**: `ccg setup hooks usage|png` wrote POSIX shell syntax
+  (`> /dev/null 2>&1 &`) into settings.json, so the hooks failed on every
+  fire under cmd.exe; they now write `>NUL` redirection on Windows, and the
+  png export path is quoted so home directories with spaces work everywhere
+- **Windows**: settings.json, goblin_config.json, bundled skill markdown,
+  and generated hook/devcontainer files were read/written with the locale
+  encoding (cp1252 on Windows), corrupting or rejecting UTF-8 content;
+  all user-file IO is now explicit UTF-8
+- awesome-hooks setup on Windows now exits with a clear message instead of
+  installing shebang scripts that cmd.exe cannot execute
+
+### Removed
+- Dead `activity_graph` module (imported nowhere, broken at import time by
+  the same `datetime.date` annotation shadowing fixed in 1.1.0)
+
 ## [1.1.0] - 2026-07-14
 
 ### Fixed
