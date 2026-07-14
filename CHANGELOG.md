@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-14
+
+### Fixed
+- **Windows**: the CLI failed to start on Windows with
+  `ModuleNotFoundError: No module named 'termios'` because
+  `src/commands/limits.py` imported the POSIX-only `pty` module at import
+  time and every command pulled it in transitively (#4)
+- `ccg export` crashed on startup (`TypeError` evaluating the
+  `datetime.date | None` annotations) because the module shadowed the
+  `datetime` module with the `datetime` class
+- `ccg --version` reported a stale hardcoded version
+
+### Removed
+- Limits tracking, which had been non-functional since Claude Code changed
+  its `/usage` output format: the `ccg limits` and `ccg status-bar` commands,
+  the `/usage` pty scraper, the limits panels in the dashboard, the
+  `--show tokens|limits|both` flag on `ccg export` (now always tokens), and
+  the `tracking_mode` config key. The `limits_snapshots` table and its sync
+  paths are retained so existing local and remote history is preserved
+
 ## [1.0.0] - 2026-07-14
 
 ### Added
