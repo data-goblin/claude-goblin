@@ -3,10 +3,10 @@ OneLake Delta sync sink for Claude Goblin.
 
 Pushes usage data to Delta tables in a Microsoft Fabric lakehouse via
 delta-rs, keeping the quack sink's watermark-incremental semantics. Only
-aggregates leave the machine: the lakehouse gets daily per-device per-model
-token totals, never message-grain rows (no session ids, folder paths, or
-branches). Auth reuses the machine's `az login` session (bearer token in
-memory only, never on disk).
+aggregates leave the machine: the lakehouse gets daily totals grouped by
+device, model, folder, and git branch -- never message-grain rows, session
+ids, or message content. Auth reuses the machine's `az login` session
+(bearer token in memory only, never on disk).
 """
 #region Imports
 import json
@@ -374,7 +374,7 @@ def push_to_onelake(
 
     from src.storage.duckdb_backend import get_sync_state, set_sync_state
 
-    skipped = {"new_records": 0, "remote_total": None, "devices": None, "skipped": True}
+    skipped = {"new_records": 0, "aggregate_rows": 0, "remote_total": None, "devices": None, "skipped": True}
 
     if respect_interval:
         interval = int(config.get("min_push_interval", _DEFAULT_PUSH_INTERVAL))
@@ -406,6 +406,7 @@ def push_to_onelake(
     batches = _fetch_batches(local_db_path, wm_id, device_filter, get_device_accounts())
 
     new_records = 0
+    aggregate_rows = 0
     if new_usage or full:
         _upsert(
             _table_uri(config, "usage_daily"),
@@ -416,6 +417,7 @@ def push_to_onelake(
             update_matched=True,
         )
         new_records = int(batches["new_underlying"])
+        aggregate_rows = int(batches["usage"].num_rows)
     set_sync_state(WM_USAGE_KEY, str(state["max_id"]), db_path=local_db_path)
 
     # Sidecar tables never block the usage push nor its watermark.
@@ -476,6 +478,7 @@ def push_to_onelake(
 
     return {
         "new_records": new_records,
+        "aggregate_rows": aggregate_rows,
         "remote_total": None,
         "devices": None,
         "skipped": False,

@@ -4,6 +4,21 @@ Claude Goblin CLI - Command-line interface using typer.
 Main entry point for all claude-goblin commands.
 """
 
+import sys
+
+# Consoles that aren't UTF-8 -- Windows cp1252, or a POSIX box pinned to a
+# non-UTF-8 locale -- make rich raise UnicodeEncodeError the moment output
+# contains a non-ASCII glyph (e.g. the warning triangle used by `update usage`),
+# aborting commands mid-run. Force UTF-8 on the std streams before any rich
+# Console is constructed. UTF-8 encodes every code point, so this can never
+# itself raise; the guard only covers streams that aren't reconfigurable
+# (e.g. replaced with StringIO under test capture).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
+
 import typer
 from rich.console import Console
 
