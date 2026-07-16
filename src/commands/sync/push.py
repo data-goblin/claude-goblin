@@ -79,7 +79,11 @@ def run_push(console: Console, force: bool = False, full: bool = False, strict: 
             if result.get("skipped"):
                 console.print(f"[dim]{provider}: nothing new to push[/dim]")
             else:
-                console.print(f"[green]{provider}: pushed {result['new_records']:,} new records[/green]")
+                agg = result.get("aggregate_rows")
+                if agg is not None:
+                    console.print(f"[green]{provider}: pushed {result['new_records']:,} source records recomputed into {agg:,} daily aggregate rows[/green]")
+                else:
+                    console.print(f"[green]{provider}: pushed {result['new_records']:,} new records[/green]")
                 if result.get("remote_total") is not None:
                     console.print(
                         f"[dim]{provider} total: {result['remote_total']:,} records "
