@@ -11,13 +11,24 @@ from src.config.user_config import (
     get_storage_mode,
 )
 from src.data.codex_parser import parse_all_codex_files
+from src.data.hermes_parser import parse_all_hermes_files
 from src.data.jsonl_parser import parse_all_jsonl_files
+from src.models.usage_record import UsageRecord
 from src.storage import api, get_db_path
 
 #endregion
 
 
 #region Functions
+
+
+def _parse_source_files(file_paths: list[Path], source_format: str) -> list[UsageRecord]:
+    """Dispatch a configured source to its transcript parser."""
+    if source_format == "codex":
+        return parse_all_codex_files(file_paths)
+    if source_format == "hermes":
+        return parse_all_hermes_files(file_paths)
+    return parse_all_jsonl_files(file_paths)
 
 
 def ingest_token_usage(console: Console, force: bool = False, verbose: bool = True) -> int:
@@ -89,23 +100,17 @@ def ingest_token_usage(console: Console, force: bool = False, verbose: bool = Tr
                     "device_name": overrides["device_name"],
                     "device_type": overrides["device_type"],
                 }
-            is_codex = bool(overrides and overrides.get("format") == "codex")
+            source_format = overrides.get("format", "claude") if overrides else "claude"
             if storage_mode == "aggregate":
                 # Per-file delta accounting: each file's contribution is
                 # tracked so a grown file's reparse adds only the difference
                 saved_count = 0
                 for f in source_stale:
-                    records = (
-                        parse_all_codex_files([f]) if is_codex
-                        else parse_all_jsonl_files([f])
-                    )
+                    records = _parse_source_files([f], source_format)
                     if records:
                         saved_count += api.save_file_aggregate(f, records, **device_kwargs)
             else:
-                records = (
-                    parse_all_codex_files(source_stale) if is_codex
-                    else parse_all_jsonl_files(source_stale)
-                )
+                records = _parse_source_files(source_stale, source_format)
                 saved_count = api.save_snapshot(
                     records,
                     storage_mode=storage_mode,
@@ -198,10 +203,8 @@ def rebuild_token_usage(console: Console) -> int:
                     pre_stats[str(f)] = (st.st_mtime_ns, st.st_size)
                 except OSError:
                     pass
-            if overrides and overrides.get("format") == "codex":
-                records = parse_all_codex_files(files)
-            else:
-                records = parse_all_jsonl_files(files)
+            source_format = overrides.get("format", "claude") if overrides else "claude"
+            records = _parse_source_files(files, source_format)
             if not records:
                 continue
             device_kwargs = {}

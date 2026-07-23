@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-23
+
+### Added
+- Hermes Agent ingestion through `extra_sources` entries with
+  `"format": "hermes"`. Content-free `post_api_request` JSONL events map to
+  the existing `usage_records` fact table, preserving the same token, model,
+  session, project, branch, and device dimensions used by Claude and Codex
+- Per-call Hermes accounting includes uncached input, output, cache-read, and
+  cache-write tokens. Provider identity is retained in `version` as
+  `hermes:<provider>`, while the model remains query-compatible in `model`
+
+### Security
+- The Hermes parser accepts usage metadata only; prompt/response content,
+  reasoning text, tool arguments, user identifiers, and credentials are not
+  part of the telemetry format
+
 ## [1.1.1] - 2026-07-14
 
 ### Fixed

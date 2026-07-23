@@ -51,3 +51,7 @@ RELEASING.md
 # Local transcript/session debris - never ship personal usage data
 .claude-sync/
 *.png
+
+# Regression tests are source; only their generated artifacts are ignored.
+!tests/
+!tests/test_*.py

@@ -401,6 +401,7 @@ def get_extra_sources() -> list[dict]:
     - device_id: valid device identifier for records from this source
     - device_name: human-readable device name
     - device_type: one of "macos", "windows", "linux"
+    - format: one of "claude", "codex", "hermes" (defaults to "claude")
 
     Returns:
         List of validated source dicts; invalid entries are skipped
@@ -422,7 +423,7 @@ def get_extra_sources() -> list[dict]:
         ):
             continue
         source_format = entry.get("format", "claude")
-        if source_format not in ("claude", "codex"):
+        if source_format not in ("claude", "codex", "hermes"):
             source_format = "claude"
         source = {
             "path": str(Path(path).expanduser()),
