@@ -19,9 +19,9 @@ def test_parses_one_usage_record_into_existing_schema(tmp_path: Path) -> None:
                 "session_id": "session-1",
                 "api_request_id": "turn-1:api:2",
                 "platform": "telegram",
-                "provider": "local-cluster",
-                "model": "minimax-m2.7",
-                "response_model": "minimax-m2.7",
+                "provider": "local-runtime",
+                "model": "local-test-model",
+                "response_model": "local-test-model",
                 "usage": {
                     "input_tokens": 100,
                     "output_tokens": 20,
@@ -40,9 +40,9 @@ def test_parses_one_usage_record_into_existing_schema(tmp_path: Path) -> None:
     assert record.session_id == "session-1"
     assert record.message_uuid == "turn-1:api:2"
     assert record.message_type == "assistant"
-    assert record.model == "minimax-m2.7"
+    assert record.model == "local-test-model"
     assert record.folder == "hermes:telegram"
-    assert record.version == "hermes:local-cluster"
+    assert record.version == "hermes:local-runtime"
     assert record.token_usage is not None
     assert record.token_usage.input_tokens == 100
     assert record.token_usage.output_tokens == 20

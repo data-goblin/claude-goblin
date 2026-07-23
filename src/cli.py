@@ -38,7 +38,7 @@ from src.commands.sync import app as sync_app
 from src.commands.update import app as update_app
 
 # Version
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 
 # Create typer app

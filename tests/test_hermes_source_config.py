@@ -8,9 +8,9 @@ def test_get_extra_sources_accepts_hermes(monkeypatch) -> None:
         lambda: {
             "extra_sources": [
                 {
-                    "path": "/var/lib/bonk-usage",
-                    "device_id": "bonk-ouroboros1",
-                    "device_name": "ouroboros1",
+                    "path": "/var/lib/ccg/hermes-usage",
+                    "device_id": "hermes-agent-host",
+                    "device_name": "Hermes Agent (host)",
                     "device_type": "linux",
                     "format": "hermes",
                 }
