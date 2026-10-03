@@ -21,8 +21,9 @@ from typing import Any, Optional
 
 try:
     import pyarrow as pa
-    from deltalake import DeltaTable, write_deltalake
+    from deltalake import DeltaTable, PostCommitHookProperties, write_deltalake
     from deltalake.exceptions import CommitFailedError, DeltaError, TableNotFoundError
+    _NO_EXPIRED_LOG_CLEANUP = PostCommitHookProperties(cleanup_expired_logs=False)
     DELTALAKE_AVAILABLE = True
 except ImportError:
     DELTALAKE_AVAILABLE = False
@@ -204,7 +205,10 @@ def _upsert(
         table = DeltaTable(uri, storage_options=storage_options)
     except TableNotFoundError:
         try:
-            write_deltalake(uri, batch, mode="error", storage_options=storage_options)
+            write_deltalake(
+                uri, batch, mode="error", storage_options=storage_options,
+                post_commithook_properties=_NO_EXPIRED_LOG_CLEANUP,
+            )
             return int(batch.num_rows)
         except DeltaError as exc:
             # Lost the create race to a concurrent pusher: open and merge.
@@ -215,7 +219,10 @@ def _upsert(
     last_error: Exception = RuntimeError("unreachable")
     for attempt in range(_MERGE_ATTEMPTS):
         try:
-            merger = table.merge(batch, predicate, source_alias="s", target_alias="t")
+            merger = table.merge(
+                batch, predicate, source_alias="s", target_alias="t",
+                post_commithook_properties=_NO_EXPIRED_LOG_CLEANUP,
+            )
             if update_matched:
                 merger = merger.when_matched_update_all()
             merger = merger.when_not_matched_insert_all()
@@ -317,7 +324,7 @@ def _maybe_compact(
         if table is None:
             continue
         try:
-            table.optimize.compact()
+            table.optimize.compact(post_commithook_properties=_NO_EXPIRED_LOG_CLEANUP)
             table.vacuum(retention_hours=_VACUUM_RETENTION_HOURS, dry_run=False)
         except Exception:
             pass

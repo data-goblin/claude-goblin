@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **OneLake**: pushes failed with `400 Bad Request` ("Either WorkspaceId or
+  ArtifactId are missing in the request") once a table's `_delta_log` aged
+  past `delta.logRetentionDuration`, because delta-rs pruned the expired
+  entries with an Azure Blob batch delete that OneLake rejects. The sink's
+  commits now skip that cleanup, so existing tables work again without
+  changing their properties
+
 ## [1.2.1] - 2026-07-23
 
 ### Changed
