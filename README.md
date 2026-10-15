@@ -1,9 +1,9 @@
----
+***
 
 > [!NOTE]
 > This repo has been archived by the author. It's no longer receiving updates and remains public just for reference. Please continue to respect [LICENSE](LICENSE).
 
----
+***
 
 # Claude Code Goblin
 
